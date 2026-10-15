@@ -3,12 +3,20 @@ import { Form, Submit } from "@/components/form";
 import { Field, Input } from "@/components/ui";
 import { register } from "../actions";
 
+export const dynamic = "force-dynamic";
+
 export default function RegisterPage() {
+  const needCode = !!process.env.REGISTRATION_CODE;
   return (
     <>
       <h1 className="mb-1 text-lg font-semibold">Регистрация мастерской</h1>
       <p className="mb-4 text-sm text-slate-500">Создаётся отдельная компания. Её данные видят только её сотрудники.</p>
       <Form action={register} className="space-y-3" resetOnOk={false}>
+        {needCode && (
+          <Field label="Код приглашения" hint="выдаёт владелец системы">
+            <Input name="inviteCode" required />
+          </Field>
+        )}
         <Field label="Название мастерской">
           <Input name="companyName" required placeholder="Сервис «Ремонт у дома»" />
         </Field>
