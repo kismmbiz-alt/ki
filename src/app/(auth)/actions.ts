@@ -24,6 +24,9 @@ export const verify2fa = safe(async (fd) => {
 });
 
 export const register = safe(async (fd) => {
+  // Если на сервере задан REGISTRATION_CODE, новую мастерскую можно создать только с этим кодом.
+  const code = process.env.REGISTRATION_CODE;
+  if (code && str(fd, "inviteCode") !== code) throw new Error("Неверный код приглашения");
   if (str(fd, "password") !== str(fd, "password2")) throw new Error("Пароли не совпадают");
   const { owner } = await createCompany({
     companyName: str(fd, "companyName"),
