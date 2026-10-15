@@ -1,0 +1,393 @@
+// Мультиарендная схема: каждая мастерская — отдельная компания (Company).
+// Все бизнес-таблицы содержат companyId, а связи между ними идут через
+// составные ключи (companyId, id). Поэтому база данных сама не даст привязать
+// заказ одной компании к клиенту, складу или точке другой компании.
+// Деньги хранятся в копейках (Int).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MANAGER
+  MASTER
+}
+
+enum StatusKind {
+  NEW
+  IN_PROGRESS
+  WAITING
+  READY
+  CLOSED
+  CANCELED
+}
+
+enum ItemKind {
+  SERVICE
+  PART
+}
+
+enum PayMethod {
+  CASH
+  CARD
+  TRANSFER
+}
+
+enum StockMoveType {
+  RECEIPT
+  ORDER
+  SALE
+  ADJUST
+  RETURN
+}
+
+model Company {
+  id           String   @id @default(cuid())
+  name         String
+  phone        String?
+  address      String?
+  receiptTerms String? // текст условий в квитанции
+  warrantyDays Int      @default(30)
+  orderSeq     Int      @default(0)
+  saleSeq      Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  locations     Location[]
+  users         User[]
+  clients       Client[]
+  statuses      OrderStatus[]
+  orders        Order[]
+  orderItems    OrderItem[]
+  orderEvents   OrderEvent[]
+  services      Service[]
+  products      Product[]
+  stocks        Stock[]
+  stockMoves    StockMove[]
+  transactions  CashTransaction[]
+  sales         Sale[]
+  saleItems     SaleItem[]
+  adSources     AdSource[]
+}
+
+model Location {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  address   String?
+  phone     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  users        User[]
+  orders       Order[]
+  stocks       Stock[]
+  stockMoves   StockMove[]
+  transactions CashTransaction[]
+  sales        Sale[]
+
+  @@unique([companyId, id])
+  @@index([companyId])
+}
+
+model User {
+  id             String   @id @default(cuid())
+  companyId      String
+  locationId     String? // null — доступ ко всем точкам
+  email          String   @unique
+  name           String
+  phone          String?
+  passwordHash   String
+  role           Role     @default(MASTER)
+  salaryPercent  Int      @default(0) // процент мастера от стоимости работ
+  totpSecret     String?
+  totpEnabled    Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location       Location?         @relation(fields: [companyId, locationId], references: [companyId, id])
+  sessions       Session[]
+  ordersAsMaster Order[]           @relation("OrderMaster")
+  ordersAsAuthor Order[]           @relation("OrderAuthor")
+  events         OrderEvent[]
+  transactions   CashTransaction[]
+  stockMoves     StockMove[]
+  sales          Sale[]
+
+  @@unique([companyId, id])
+  @@index([companyId])
+}
+
+model Session {
+  id          String   @id // sha256 от токена из cookie
+  userId      String
+  twoFactorOk Boolean  @default(false)
+  locationId  String? // выбранная точка
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model AdSource {
+  id        String  @id @default(cuid())
+  companyId String
+  name      String
+  isActive  Boolean @default(true)
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  clients Client[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, name])
+}
+
+model Client {
+  id         String   @id @default(cuid())
+  companyId  String
+  name       String
+  phone      String
+  email      String?
+  notes      String?
+  adSourceId String?
+  createdAt  DateTime @default(now())
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  adSource AdSource? @relation(fields: [companyId, adSourceId], references: [companyId, id])
+  orders   Order[]
+  sales    Sale[]
+
+  @@unique([companyId, id])
+  @@index([companyId, phone])
+}
+
+model OrderStatus {
+  id        String     @id @default(cuid())
+  companyId String
+  name      String
+  color     String     @default("#64748b")
+  kind      StatusKind
+  sort      Int        @default(0)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orders  Order[]
+
+  @@unique([companyId, id])
+  @@index([companyId])
+}
+
+model Order {
+  id             String    @id @default(cuid())
+  companyId      String
+  locationId     String
+  number         Int
+  clientId       String
+  statusId       String
+  masterId       String?
+  authorId       String
+  deviceType     String
+  brand          String?
+  model          String?
+  serial         String?
+  problem        String
+  equipment      String?
+  appearance     String?
+  notes          String?
+  estimatedPrice Int?
+  dueDate        DateTime?
+  publicToken    String    @unique
+  closedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location Location          @relation(fields: [companyId, locationId], references: [companyId, id])
+  client   Client            @relation(fields: [companyId, clientId], references: [companyId, id])
+  status   OrderStatus       @relation(fields: [companyId, statusId], references: [companyId, id])
+  master   User?             @relation("OrderMaster", fields: [companyId, masterId], references: [companyId, id])
+  author   User              @relation("OrderAuthor", fields: [companyId, authorId], references: [companyId, id])
+  items    OrderItem[]
+  events   OrderEvent[]
+  payments CashTransaction[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, number])
+  @@index([companyId, statusId])
+  @@index([companyId, clientId])
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  companyId String
+  orderId   String
+  kind      ItemKind
+  productId String?
+  serviceId String?
+  name      String
+  qty       Int      @default(1)
+  price     Int // цена для клиента за единицу, коп.
+  cost      Int      @default(0) // себестоимость за единицу, коп.
+  createdAt DateTime @default(now())
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order   Order    @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Cascade)
+  product Product? @relation(fields: [companyId, productId], references: [companyId, id])
+  service Service? @relation(fields: [companyId, serviceId], references: [companyId, id])
+
+  @@index([companyId, orderId])
+}
+
+model OrderEvent {
+  id        String   @id @default(cuid())
+  companyId String
+  orderId   String
+  userId    String?
+  text      String
+  createdAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order   Order   @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Cascade)
+  user    User?   @relation(fields: [companyId, userId], references: [companyId, id])
+
+  @@index([companyId, orderId])
+}
+
+model Service {
+  id        String  @id @default(cuid())
+  companyId String
+  name      String
+  price     Int
+  isActive  Boolean @default(true)
+
+  company Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items   OrderItem[]
+
+  @@unique([companyId, id])
+  @@index([companyId])
+}
+
+model Product {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  sku       String?
+  barcode   String?
+  price     Int // цена продажи, коп.
+  cost      Int      @default(0) // средняя закупочная, коп.
+  minQty    Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stocks     Stock[]
+  moves      StockMove[]
+  orderItems OrderItem[]
+  saleItems  SaleItem[]
+
+  @@unique([companyId, id])
+  @@index([companyId])
+}
+
+model Stock {
+  id         String @id @default(cuid())
+  companyId  String
+  productId  String
+  locationId String
+  qty        Int    @default(0)
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Cascade)
+  location Location @relation(fields: [companyId, locationId], references: [companyId, id])
+
+  @@unique([companyId, productId, locationId])
+}
+
+model StockMove {
+  id         String        @id @default(cuid())
+  companyId  String
+  productId  String
+  locationId String
+  userId     String?
+  type       StockMoveType
+  qty        Int // + приход, - расход
+  cost       Int           @default(0) // закупочная цена единицы при приходе
+  comment    String?
+  createdAt  DateTime      @default(now())
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Cascade)
+  location Location @relation(fields: [companyId, locationId], references: [companyId, id])
+  user     User?    @relation(fields: [companyId, userId], references: [companyId, id])
+
+  @@index([companyId, productId])
+}
+
+model CashTransaction {
+  id         String    @id @default(cuid())
+  companyId  String
+  locationId String
+  userId     String?
+  orderId    String?
+  saleId     String?
+  amount     Int // + приход, - расход, коп.
+  method     PayMethod @default(CASH)
+  category   String // "Оплата заказа", "Продажа", "Аренда" ...
+  comment    String?
+  createdAt  DateTime  @default(now())
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [companyId, locationId], references: [companyId, id])
+  user     User?    @relation(fields: [companyId, userId], references: [companyId, id])
+  order    Order?   @relation(fields: [companyId, orderId], references: [companyId, id])
+  sale     Sale?    @relation(fields: [companyId, saleId], references: [companyId, id])
+
+  @@index([companyId, locationId, createdAt])
+}
+
+model Sale {
+  id         String   @id @default(cuid())
+  companyId  String
+  locationId String
+  number     Int
+  clientId   String?
+  userId     String?
+  total      Int
+  createdAt  DateTime @default(now())
+
+  company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location     Location          @relation(fields: [companyId, locationId], references: [companyId, id])
+  client       Client?           @relation(fields: [companyId, clientId], references: [companyId, id])
+  user         User?             @relation(fields: [companyId, userId], references: [companyId, id])
+  items        SaleItem[]
+  transactions CashTransaction[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, number])
+}
+
+model SaleItem {
+  id        String @id @default(cuid())
+  companyId String
+  saleId    String
+  productId String
+  name      String
+  qty       Int
+  price     Int
+  cost      Int    @default(0)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sale    Sale    @relation(fields: [companyId, saleId], references: [companyId, id], onDelete: Cascade)
+  product Product @relation(fields: [companyId, productId], references: [companyId, id])
+
+  @@index([companyId, saleId])
+}

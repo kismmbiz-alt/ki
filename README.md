@@ -1,36 +1,60 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Мастерская CRM
 
-## Getting Started
+CRM для сервисных центров и ремонтных мастерских: приёмка и заказы, клиенты, склад запчастей, продажи, касса, отчёты и зарплата мастеров.
 
-First, run the development server:
+## Несколько мастерских в одной системе
+
+Каждая мастерская регистрируется как отдельная **компания** (`/register`). У компании свои точки, сотрудники, клиенты, заказы, склад и касса.
+
+Данные компаний разделены на трёх уровнях:
+
+1. **Код.** Все запросы идут через `tenantDb(companyId)` (`src/lib/db.ts`), который сам добавляет фильтр `companyId` к каждому запросу и к каждой новой записи.
+2. **База данных.** Связи между таблицами построены на составных ключах `(companyId, id)`, поэтому база не даст привязать заказ одной компании к клиенту, точке, мастеру или товару другой.
+3. **Тесты.** `tests/tenant.test.ts` проверяет, что одна компания не может прочитать, изменить или удалить данные другой.
+
+Внутри компании доступ зависит от роли: владелец и администратор видят всё, приёмщик работает с заказами, складом и кассой, мастер видит только свои заказы. Сотрудника можно закрепить за одной точкой.
+
+## Возможности первой версии
+
+- Приёмка: клиент (поиск по телефону), устройство с подсказками бренда и модели, IMEI, неисправность, комплектация, внешний вид, срок, предоплата.
+- Настраиваемые статусы. Заказ нельзя выдать, пока он не оплачен полностью. Изменения в закрытом заказе запрещены.
+- В заказ добавляются работы из прайса и запчасти со склада; запчасть автоматически списывается со склада точки.
+- Полная история заказа: кто и что изменил.
+- Печать квитанции о приёме, акта выдачи и наклейки с номером заказа.
+- Публичная ссылка, по которой клиент видит статус своего заказа.
+- Склад по точкам: приход со средней закупочной ценой, инвентаризация, минимальный остаток, история движений.
+- Продажи без заказа: поиск по названию или штрихкоду.
+- Касса: остаток наличных, приход и расход по статьям, операции за день.
+- Отчёты: выручка, прибыль, заказы и зарплата мастеров в процентах от работ.
+- Двухфакторный вход по коду из приложения-аутентификатора.
+
+## Запуск для разработки
+
+Нужны Node.js 22 и PostgreSQL 16.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env        # укажите DATABASE_URL
+npm install
+npx prisma migrate deploy   # создаёт таблицы
+npm run dev                 # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Тесты используют отдельную базу `crm_test`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm test
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Запуск на сервере
 
-## Learn More
+```bash
+DB_PASSWORD=надёжный-пароль docker compose up -d --build
+```
 
-To learn more about Next.js, take a look at the following resources:
+Приложение откроется на порту 3000; перед ним ставится nginx с HTTPS. Для соответствия 152-ФЗ сервер должен находиться в России. Настройте ежедневный бэкап базы (`pg_dump`).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Стек
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Next.js 15 (App Router, server actions), TypeScript, Tailwind CSS, Prisma 6, PostgreSQL.
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Суммы хранятся в копейках (`Int`), для перевода есть помощники в `src/lib/money.ts`.
