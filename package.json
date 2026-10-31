@@ -35,5 +35,8 @@
     "tsx": "^4.23.15",
     "typescript": "^5",
     "vitest": "^3.2.7"
+  },
+  "optionalDependencies": {
+    "embedded-postgres": "16.15.0-beta.19"
   }
 }
