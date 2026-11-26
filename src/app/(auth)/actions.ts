@@ -12,7 +12,7 @@ export const login = safe(async (fd) => {
   if (!user || !user.isActive || !(await verifyPassword(str(fd, "password"), user.passwordHash)))
     throw new Error("Неверный email или пароль");
   await createSession(user.id, !user.totpEnabled);
-  redirect(user.totpEnabled ? "/login/2fa" : "/orders");
+  redirect(user.totpEnabled ? "/login/2fa" : "/dashboard");
 });
 
 export const verify2fa = safe(async (fd) => {
@@ -20,7 +20,7 @@ export const verify2fa = safe(async (fd) => {
   if (!s) redirect("/login");
   if (!s.user.totpSecret || !verifyTotp(s.user.totpSecret, str(fd, "code"))) throw new Error("Неверный код");
   await markTwoFactorOk(s.id);
-  redirect("/orders");
+  redirect("/dashboard");
 });
 
 export const register = safe(async (fd) => {
@@ -34,7 +34,7 @@ export const register = safe(async (fd) => {
     locationName: str(fd, "locationName"),
   });
   await createSession(owner.id, true);
-  redirect("/orders");
+  redirect("/dashboard");
 });
 
 export async function logout() {

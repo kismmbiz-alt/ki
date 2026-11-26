@@ -11,7 +11,7 @@ export default async function PublicStatus({ params }: { params: Promise<{ token
     include: { status: true, company: true, location: true, items: true, payments: { select: { amount: true } } },
   });
   if (!o) notFound();
-  const t = totals(o.items, o.payments.reduce((s, p) => s + p.amount, 0));
+  const t = totals(o.items, o.payments.reduce((s, p) => s + p.amount, 0), o);
   return (
     <main className="flex min-h-screen items-center justify-center p-4">
       <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 text-center">

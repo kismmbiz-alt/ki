@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import type { ActionState } from "@/lib/action";
-import { btn } from "./ui";
+import { btn, type BtnVariant } from "./ui";
 
 type Action = (prev: ActionState, fd: FormData) => Promise<ActionState>;
 
@@ -32,7 +32,7 @@ export function Form({
   );
 }
 
-export function Submit({ children, variant = "primary", className = "" }: { children: React.ReactNode; variant?: "primary" | "secondary" | "danger"; className?: string }) {
+export function Submit({ children, variant = "primary", className = "" }: { children: React.ReactNode; variant?: BtnVariant; className?: string }) {
   const { pending } = useFormStatus();
   return (
     <button type="submit" disabled={pending} className={`${btn(variant)} ${className}`}>

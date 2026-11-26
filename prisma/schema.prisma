@@ -40,6 +40,17 @@ enum PayMethod {
   TRANSFER
 }
 
+enum DictKind {
+  DEVICE_TYPE
+  BRAND
+  MODEL
+  COLOR
+  EQUIPMENT
+  APPEARANCE
+  DEFECT
+  ORDER_TYPE
+}
+
 enum StockMoveType {
   RECEIPT
   ORDER
@@ -59,21 +70,23 @@ model Company {
   saleSeq      Int      @default(0)
   createdAt    DateTime @default(now())
 
-  locations     Location[]
-  users         User[]
-  clients       Client[]
-  statuses      OrderStatus[]
-  orders        Order[]
-  orderItems    OrderItem[]
-  orderEvents   OrderEvent[]
-  services      Service[]
-  products      Product[]
-  stocks        Stock[]
-  stockMoves    StockMove[]
-  transactions  CashTransaction[]
-  sales         Sale[]
-  saleItems     SaleItem[]
-  adSources     AdSource[]
+  locations    Location[]
+  users        User[]
+  clients      Client[]
+  statuses     OrderStatus[]
+  orders       Order[]
+  orderItems   OrderItem[]
+  orderEvents  OrderEvent[]
+  services     Service[]
+  products     Product[]
+  stocks       Stock[]
+  stockMoves   StockMove[]
+  transactions CashTransaction[]
+  sales        Sale[]
+  saleItems    SaleItem[]
+  adSources    AdSource[]
+  dictItems    DictItem[]
+  orderFiles   OrderFile[]
 }
 
 model Location {
@@ -98,29 +111,30 @@ model Location {
 }
 
 model User {
-  id             String   @id @default(cuid())
-  companyId      String
-  locationId     String? // null — доступ ко всем точкам
-  email          String   @unique
-  name           String
-  phone          String?
-  passwordHash   String
-  role           Role     @default(MASTER)
-  salaryPercent  Int      @default(0) // процент мастера от стоимости работ
-  totpSecret     String?
-  totpEnabled    Boolean  @default(false)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
+  id            String   @id @default(cuid())
+  companyId     String
+  locationId    String? // null — доступ ко всем точкам
+  email         String   @unique
+  name          String
+  phone         String?
+  passwordHash  String
+  role          Role     @default(MASTER)
+  salaryPercent Int      @default(0) // процент мастера от стоимости работ
+  totpSecret    String?
+  totpEnabled   Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
 
-  company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  location       Location?         @relation(fields: [companyId, locationId], references: [companyId, id])
-  sessions       Session[]
-  ordersAsMaster Order[]           @relation("OrderMaster")
-  ordersAsAuthor Order[]           @relation("OrderAuthor")
-  events         OrderEvent[]
-  transactions   CashTransaction[]
-  stockMoves     StockMove[]
-  sales          Sale[]
+  company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location        Location?         @relation(fields: [companyId, locationId], references: [companyId, id])
+  sessions        Session[]
+  ordersAsMaster  Order[]           @relation("OrderMaster")
+  ordersAsAuthor  Order[]           @relation("OrderAuthor")
+  ordersAsManager Order[]           @relation("OrderManager")
+  events          OrderEvent[]
+  transactions    CashTransaction[]
+  stockMoves      StockMove[]
+  sales           Sale[]
 
   @@unique([companyId, id])
   @@index([companyId])
@@ -158,6 +172,7 @@ model Client {
   name       String
   phone      String
   email      String?
+  address    String?
   notes      String?
   adSourceId String?
   createdAt  DateTime @default(now())
@@ -194,7 +209,14 @@ model Order {
   clientId       String
   statusId       String
   masterId       String?
+  managerId      String?
   authorId       String
+  orderType      String    @default("Платный")
+  urgent         Boolean   @default(false)
+  color          String?
+  verdict        String? // вердикт / рекомендации клиенту
+  discountPct    Int       @default(0)
+  discountSum    Int       @default(0) // скидка в копейках
   deviceType     String
   brand          String?
   model          String?
@@ -215,10 +237,12 @@ model Order {
   client   Client            @relation(fields: [companyId, clientId], references: [companyId, id])
   status   OrderStatus       @relation(fields: [companyId, statusId], references: [companyId, id])
   master   User?             @relation("OrderMaster", fields: [companyId, masterId], references: [companyId, id])
+  manager  User?             @relation("OrderManager", fields: [companyId, managerId], references: [companyId, id])
   author   User              @relation("OrderAuthor", fields: [companyId, authorId], references: [companyId, id])
   items    OrderItem[]
   events   OrderEvent[]
   payments CashTransaction[]
+  files    OrderFile[]
 
   @@unique([companyId, id])
   @@unique([companyId, number])
@@ -227,17 +251,18 @@ model Order {
 }
 
 model OrderItem {
-  id        String   @id @default(cuid())
-  companyId String
-  orderId   String
-  kind      ItemKind
-  productId String?
-  serviceId String?
-  name      String
-  qty       Int      @default(1)
-  price     Int // цена для клиента за единицу, коп.
-  cost      Int      @default(0) // себестоимость за единицу, коп.
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  companyId    String
+  orderId      String
+  kind         ItemKind
+  productId    String?
+  serviceId    String?
+  name         String
+  qty          Int      @default(1)
+  price        Int // цена для клиента за единицу, коп.
+  cost         Int      @default(0) // себестоимость за единицу, коп.
+  warrantyDays Int? // гарантия на позицию, дней
+  createdAt    DateTime @default(now())
 
   company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   order   Order    @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Cascade)
@@ -390,4 +415,37 @@ model SaleItem {
   product Product @relation(fields: [companyId, productId], references: [companyId, id])
 
   @@index([companyId, saleId])
+}
+
+// Справочники для подсказок при приёмке: марки, модели, цвета, неисправности и т.д.
+model DictItem {
+  id        String   @id @default(cuid())
+  companyId String
+  kind      DictKind
+  value     String
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, kind, value])
+  @@index([companyId, kind])
+}
+
+// Фото и файлы заказа. Хранятся в базе, чтобы попадать в ежедневный бэкап.
+model OrderFile {
+  id        String   @id @default(cuid())
+  companyId String
+  orderId   String
+  name      String
+  mime      String
+  size      Int
+  data      Bytes
+  userId    String?
+  createdAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order   Order   @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Cascade)
+
+  @@index([companyId, orderId])
 }

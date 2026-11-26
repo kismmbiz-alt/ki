@@ -164,3 +164,28 @@ export const saveSourceAction = safe(async (fd) => {
   revalidatePath("/settings/catalog");
   return "Сохранено";
 });
+
+const DICT_KIND_SET = new Set(["DEVICE_TYPE", "BRAND", "MODEL", "COLOR", "EQUIPMENT", "APPEARANCE", "DEFECT", "ORDER_TYPE"]);
+
+export const addDictAction = safe(async (fd) => {
+  const ctx = await requirePermission("settings");
+  const kind = str(fd, "kind");
+  if (!DICT_KIND_SET.has(kind)) throw new Error("Неизвестный справочник");
+  const values = str(fd, "values")
+    .split(/[\n;]/)
+    .map((v) => v.trim())
+    .filter((v) => v && v.length <= 120);
+  if (!values.length) throw new Error("Впишите значение");
+  await ctx.db.dictItem.createMany({
+    data: values.map((value) => ({ companyId: ctx.company.id, kind: kind as never, value, sort: 500 })),
+    skipDuplicates: true,
+  });
+  revalidatePath("/settings/dicts");
+  return values.length > 1 ? `Добавлено: ${values.length}` : "Добавлено";
+});
+
+export const deleteDictAction = safe(async (fd) => {
+  const ctx = await requirePermission("settings");
+  await ctx.db.dictItem.deleteMany({ where: { id: str(fd, "id") } });
+  revalidatePath("/settings/dicts");
+});

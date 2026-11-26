@@ -5,7 +5,11 @@ import { newPublicToken } from "./company";
 export type NewOrderInput = {
   locationId: string;
   authorId: string;
-  client: { id?: string; name?: string; phone?: string; adSourceId?: string | null };
+  client: { id?: string; name?: string; phone?: string; address?: string | null; adSourceId?: string | null };
+  orderType?: string | null;
+  color?: string | null;
+  urgent?: boolean;
+  managerId?: string | null;
   deviceType: string;
   brand?: string | null;
   model?: string | null;
@@ -47,6 +51,7 @@ export async function createOrder({ db, companyId }: Tenant, input: NewOrderInpu
             data: { companyId,
               name: input.client.name?.trim() || "Без имени",
               phone,
+              address: input.client.address || null,
               adSourceId: input.client.adSourceId || null,
             },
           })
@@ -64,7 +69,11 @@ export async function createOrder({ db, companyId }: Tenant, input: NewOrderInpu
         clientId,
         statusId: status.id,
         masterId: input.masterId || null,
+        managerId: input.managerId || input.authorId,
         authorId: input.authorId,
+        orderType: input.orderType?.trim() || "Платный",
+        color: input.color || null,
+        urgent: !!input.urgent,
         deviceType: input.deviceType.trim(),
         brand: input.brand || null,
         model: input.model || null,
@@ -80,6 +89,15 @@ export async function createOrder({ db, companyId }: Tenant, input: NewOrderInpu
     });
     await tx.orderEvent.create({
       data: { companyId, orderId: order.id, userId: input.authorId, text: `Заказ принят, статус «${status.name}»` },
+    });
+    await learnTx(tx, {
+      DEVICE_TYPE: input.deviceType,
+      BRAND: input.brand,
+      MODEL: input.model,
+      COLOR: input.color,
+      DEFECT: input.problem,
+      EQUIPMENT: input.equipment,
+      APPEARANCE: input.appearance,
     });
     if (input.prepayment && input.prepayment > 0) {
       await addPaymentTx(tx, {
@@ -144,7 +162,7 @@ export async function addService(
   { db, companyId }: Tenant,
   orderId: string,
   userId: string,
-  item: { serviceId?: string | null; name?: string; price: number; qty?: number },
+  item: { serviceId?: string | null; name?: string; price: number; qty?: number; warrantyDays?: number | null },
 ) {
   return db.$transaction(async (tx) => {
     await assertOpen(tx, orderId);
@@ -155,7 +173,7 @@ export async function addService(
     }
     if (!name) throw new Error("Укажите название работы");
     await tx.orderItem.create({
-      data: { companyId, orderId, kind: "SERVICE", serviceId: item.serviceId || null, name, qty: item.qty ?? 1, price: item.price },
+      data: { companyId, orderId, kind: "SERVICE", serviceId: item.serviceId || null, name, qty: item.qty ?? 1, price: item.price, warrantyDays: item.warrantyDays ?? null },
     });
     await tx.orderEvent.create({ data: { companyId, orderId, userId, text: `Добавлена работа: ${name}` } });
   });
@@ -166,7 +184,7 @@ export async function addPart(
   { db, companyId }: Tenant,
   orderId: string,
   userId: string,
-  item: { productId: string; qty: number; price?: number },
+  item: { productId: string; qty: number; price?: number; warrantyDays?: number | null },
 ) {
   if (item.qty <= 0) throw new Error("Количество должно быть больше нуля");
   return db.$transaction(async (tx) => {
@@ -189,6 +207,7 @@ export async function addPart(
         qty: item.qty,
         price: item.price ?? product.price,
         cost: product.cost,
+        warrantyDays: item.warrantyDays ?? null,
       },
     });
     await tx.orderEvent.create({ data: { companyId, orderId, userId, text: `Установлена запчасть: ${product.name} × ${item.qty}` } });
@@ -266,22 +285,148 @@ async function addPaymentTx(
 }
 
 async function orderTotalsTx(tx: Tx, orderId: string) {
+  const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { discountPct: true, discountSum: true } });
   const items = await tx.orderItem.findMany({ where: { orderId } });
   const paidAgg = await tx.cashTransaction.aggregate({ where: { orderId }, _sum: { amount: true } });
-  return totals(items, paidAgg._sum.amount ?? 0);
+  return totals(items, paidAgg._sum.amount ?? 0, order);
+}
+
+/**
+ * Выдача заказа: при необходимости принимает остаток оплаты
+ * и переводит заказ в первый статус «Выдан».
+ */
+export async function issueOrder(
+  { db, companyId }: Tenant,
+  input: { orderId: string; userId: string; method: "CASH" | "CARD" | "TRANSFER"; takePayment: boolean },
+) {
+  return db.$transaction(async (tx) => {
+    const order = await tx.order.findUniqueOrThrow({ where: { id: input.orderId }, include: { status: true } });
+    if (order.status.kind === "CLOSED") throw new Error("Заказ уже выдан");
+    const closed = await tx.orderStatus.findFirst({ where: { kind: "CLOSED" }, orderBy: { sort: "asc" } });
+    if (!closed) throw new Error("Не настроен статус выдачи");
+    const t = await orderTotalsTx(tx, order.id);
+    if (t.due > 0) {
+      if (!input.takePayment) throw new Error(`Клиент должен ещё ${(t.due / 100).toLocaleString("ru-RU")} ₽`);
+      await addPaymentTx(tx, { orderId: order.id, locationId: order.locationId, userId: input.userId, amount: t.due, method: input.method });
+    }
+    await tx.order.update({ where: { id: order.id }, data: { statusId: closed.id, closedAt: new Date() } });
+    await tx.orderEvent.create({
+      data: { companyId, orderId: order.id, userId: input.userId, text: `Статус: «${order.status.name}» → «${closed.name}»` },
+    });
+  });
+}
+
+export type OrderUpdate = {
+  orderType?: string;
+  urgent?: boolean;
+  color?: string | null;
+  deviceType?: string;
+  brand?: string | null;
+  model?: string | null;
+  serial?: string | null;
+  problem?: string;
+  equipment?: string | null;
+  appearance?: string | null;
+  notes?: string | null;
+  verdict?: string | null;
+  estimatedPrice?: number | null;
+  dueDate?: Date | null;
+  masterId?: string | null;
+  managerId?: string | null;
+  client?: { name?: string; address?: string | null; adSourceId?: string | null };
+};
+
+const FIELD_LABEL: Record<string, string> = {
+  orderType: "Тип заказа",
+  urgent: "Срочно",
+  color: "Цвет",
+  deviceType: "Тип устройства",
+  brand: "Марка",
+  model: "Модель",
+  serial: "Серийный номер",
+  problem: "Неисправность",
+  equipment: "Комплектация",
+  appearance: "Внешний вид",
+  notes: "Комментарий приёмщика",
+  verdict: "Вердикт",
+  estimatedPrice: "Ориент. цена",
+  dueDate: "Крайний срок",
+  masterId: "Мастер",
+  managerId: "Менеджер",
+};
+
+/** Сохраняет карточку заказа и пишет в историю, какие поля изменились. */
+export async function updateOrder({ db, companyId }: Tenant, orderId: string, userId: string, u: OrderUpdate) {
+  return db.$transaction(async (tx) => {
+    const order = await tx.order.findUniqueOrThrow({ where: { id: orderId } });
+    const { client, ...data } = u;
+    if (data.problem !== undefined && !data.problem.trim()) throw new Error("Опишите неисправность");
+    if (data.deviceType !== undefined && !data.deviceType.trim()) delete data.deviceType;
+    const changed: string[] = [];
+    for (const [k, v] of Object.entries(data)) {
+      const old = (order as Record<string, unknown>)[k];
+      const a = old instanceof Date ? old.getTime() : (old ?? null);
+      const b = v instanceof Date ? v.getTime() : (v ?? null);
+      if (a !== b) changed.push(k);
+    }
+    if (changed.length) {
+      await tx.order.update({ where: { id: orderId }, data });
+      const verdictText = changed.includes("verdict") && data.verdict ? `\nВердикт: ${data.verdict}` : "";
+      await tx.orderEvent.create({
+        data: { companyId, orderId, userId, text: `Изменены данные заказа: ${changed.map((c) => FIELD_LABEL[c] ?? c).join(", ")}${verdictText}` },
+      });
+    }
+    if (client) {
+      await tx.client.update({
+        where: { id: order.clientId },
+        data: {
+          ...(client.name?.trim() ? { name: client.name.trim() } : {}),
+          address: client.address ?? null,
+          ...(client.adSourceId !== undefined ? { adSourceId: client.adSourceId } : {}),
+        },
+      });
+    }
+    await learnTx(tx, {
+      DEVICE_TYPE: data.deviceType,
+      BRAND: data.brand,
+      MODEL: data.model,
+      COLOR: data.color,
+      DEFECT: data.problem,
+      EQUIPMENT: data.equipment,
+      APPEARANCE: data.appearance,
+    });
+    return changed.length;
+  });
+}
+
+export async function setDiscount({ db, companyId }: Tenant, orderId: string, userId: string, d: { pct: number; sum: number }) {
+  if (d.pct < 0 || d.pct > 100) throw new Error("Скидка в процентах должна быть от 0 до 100");
+  if (d.sum < 0) throw new Error("Скидка не может быть отрицательной");
+  return db.$transaction(async (tx) => {
+    await assertOpen(tx, orderId);
+    await tx.order.update({ where: { id: orderId }, data: { discountPct: d.pct, discountSum: d.sum } });
+    const text = d.pct || d.sum ? `Скидка: ${[d.pct ? d.pct + "%" : "", d.sum ? (d.sum / 100).toLocaleString("ru-RU") + " ₽" : ""].filter(Boolean).join(" + ")}` : "Скидка убрана";
+    await tx.orderEvent.create({ data: { companyId, orderId, userId, text } });
+  });
 }
 
 export async function orderTotals({ db }: Tenant, orderId: string) {
   return orderTotalsTx(db, orderId);
 }
 
-export function totals(items: { kind: string; qty: number; price: number; cost: number }[], paid: number) {
+export type Discount = { discountPct?: number | null; discountSum?: number | null };
+
+export function totals(items: { kind: string; qty: number; price: number; cost: number }[], paid: number, disc?: Discount | null) {
   const services = items.filter((i) => i.kind === "SERVICE").reduce((s, i) => s + i.qty * i.price, 0);
   const parts = items.filter((i) => i.kind === "PART").reduce((s, i) => s + i.qty * i.price, 0);
   const partsCost = items.filter((i) => i.kind === "PART").reduce((s, i) => s + i.qty * i.cost, 0);
-  const total = services + parts;
-  return { services, parts, partsCost, total, paid, due: total - paid, profit: total - partsCost };
+  const subtotal = services + parts;
+  const pct = Math.min(100, Math.max(0, disc?.discountPct ?? 0));
+  const discount = Math.min(subtotal, Math.round((subtotal * pct) / 100) + Math.max(0, disc?.discountSum ?? 0));
+  const total = subtotal - discount;
+  return { services, parts, partsCost, subtotal, discount, total, paid, due: total - paid, profit: total - partsCost };
 }
 
 // импорт ниже, чтобы избежать циклов
 import { moveStockTx } from "./stock";
+import { learnTx } from "./dict";
