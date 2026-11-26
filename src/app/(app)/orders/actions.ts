@@ -33,8 +33,13 @@ export const createOrderAction = safe(async (fd) => {
       id: opt(fd, "clientId") ?? undefined,
       name: str(fd, "clientName"),
       phone: str(fd, "clientPhone"),
+      address: opt(fd, "clientAddress"),
       adSourceId: opt(fd, "adSourceId"),
     },
+    orderType: opt(fd, "orderType"),
+    color: opt(fd, "color"),
+    urgent: str(fd, "urgent") === "1",
+    managerId: opt(fd, "managerId"),
     deviceType: str(fd, "deviceType"),
     brand: opt(fd, "brand"),
     model: opt(fd, "model"),
@@ -71,7 +76,7 @@ export const addServiceAction = safe(async (fd) => {
   let price = str(fd, "price") ? toKop(fd.get("price")) : null;
   if (price === null && serviceId) price = (await ctx.db.service.findUniqueOrThrow({ where: { id: serviceId } })).price;
   if (price === null) throw new Error("Укажите цену");
-  await orders.addService(t, order.id, ctx.user.id, { serviceId, name: str(fd, "name"), price, qty: int(fd, "qty", 1) });
+  await orders.addService(t, order.id, ctx.user.id, { serviceId, name: str(fd, "name"), price, qty: int(fd, "qty", 1), warrantyDays: warranty(fd) });
   revalidatePath(`/orders/${order.id}`);
   return "Работа добавлена";
 });
@@ -79,7 +84,7 @@ export const addServiceAction = safe(async (fd) => {
 export const addPartAction = safe(async (fd) => {
   const { ctx, t, order } = await assertOrderAccess(str(fd, "orderId"));
   const price = str(fd, "price") ? toKop(fd.get("price")) : undefined;
-  await orders.addPart(t, order.id, ctx.user.id, { productId: str(fd, "productId"), qty: int(fd, "qty", 1), price });
+  await orders.addPart(t, order.id, ctx.user.id, { productId: str(fd, "productId"), qty: int(fd, "qty", 1), price, warrantyDays: warranty(fd) });
   revalidatePath(`/orders/${order.id}`);
   return "Запчасть списана со склада";
 });
@@ -111,25 +116,93 @@ export const commentAction = safe(async (fd) => {
   return "Комментарий добавлен";
 });
 
+const warranty = (fd: FormData) => (str(fd, "warrantyDays") ? int(fd, "warrantyDays") : null);
+
 export const updateOrderAction = safe(async (fd) => {
-  const { ctx, order } = await assertOrderAccess(str(fd, "orderId"));
+  const { ctx, t, order } = await assertOrderAccess(str(fd, "orderId"));
   const due = str(fd, "dueDate");
-  await ctx.db.order.update({
-    where: { id: order.id },
-    data: {
-      deviceType: str(fd, "deviceType") || order.deviceType,
-      brand: opt(fd, "brand"),
-      model: opt(fd, "model"),
-      serial: opt(fd, "serial"),
-      problem: str(fd, "problem") || order.problem,
-      equipment: opt(fd, "equipment"),
-      appearance: opt(fd, "appearance"),
-      notes: opt(fd, "notes"),
-      estimatedPrice: str(fd, "estimatedPrice") ? toKop(fd.get("estimatedPrice")) : null,
-      dueDate: due ? new Date(due) : null,
-    },
+  const manage = can(ctx.user.role, "allOrders");
+  const n = await orders.updateOrder(t, order.id, ctx.user.id, {
+    orderType: str(fd, "orderType") || order.orderType,
+    urgent: str(fd, "urgent") === "1",
+    color: opt(fd, "color"),
+    deviceType: str(fd, "deviceType"),
+    brand: opt(fd, "brand"),
+    model: opt(fd, "model"),
+    serial: opt(fd, "serial"),
+    problem: str(fd, "problem"),
+    equipment: opt(fd, "equipment"),
+    appearance: opt(fd, "appearance"),
+    notes: opt(fd, "notes"),
+    verdict: opt(fd, "verdict"),
+    estimatedPrice: str(fd, "estimatedPrice") ? toKop(fd.get("estimatedPrice")) : null,
+    dueDate: due ? new Date(due) : null,
+    ...(manage ? { masterId: opt(fd, "masterId"), managerId: opt(fd, "managerId") } : {}),
+    ...(manage && fd.has("clientName")
+      ? { client: { name: str(fd, "clientName"), address: opt(fd, "clientAddress"), adSourceId: opt(fd, "adSourceId") } }
+      : {}),
   });
-  await orders.addComment({ db: ctx.db, companyId: ctx.company.id }, order.id, ctx.user.id, "Изменены данные заказа");
+  revalidatePath(`/orders/${order.id}`);
+  return n ? "Сохранено" : "Изменений нет";
+});
+
+export const verdictAction = safe(async (fd) => {
+  const { ctx, t, order } = await assertOrderAccess(str(fd, "orderId"));
+  await orders.updateOrder(t, order.id, ctx.user.id, { verdict: opt(fd, "verdict") });
   revalidatePath(`/orders/${order.id}`);
   return "Сохранено";
+});
+
+export const discountAction = safe(async (fd) => {
+  const { ctx, t, order } = await assertOrderAccess(str(fd, "orderId"));
+  if (!can(ctx.user.role, "cash")) throw new Error("Скидку даёт приёмщик или владелец");
+  await orders.setDiscount(t, order.id, ctx.user.id, { pct: int(fd, "discountPct", 0), sum: toKop(fd.get("discountSum")) });
+  revalidatePath(`/orders/${order.id}`);
+});
+
+export const issueOrderAction = safe(async (fd) => {
+  const { ctx, t, order } = await assertOrderAccess(str(fd, "orderId"));
+  if (!can(ctx.user.role, "cash")) throw new Error("Выдаёт заказ приёмщик или владелец");
+  await orders.issueOrder(t, {
+    orderId: order.id,
+    userId: ctx.user.id,
+    method: (str(fd, "method") || "CASH") as PayMethod,
+    takePayment: str(fd, "takePayment") === "1",
+  });
+  revalidatePath(`/orders/${order.id}`);
+  return "Заказ выдан";
+});
+
+const MAX_FILE = 8 * 1024 * 1024;
+
+export const uploadFilesAction = safe(async (fd) => {
+  const { ctx, order } = await assertOrderAccess(str(fd, "orderId"));
+  const files = fd.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  if (!files.length) throw new Error("Выберите файл");
+  for (const f of files) {
+    if (f.size > MAX_FILE) throw new Error(`Файл «${f.name}» больше 8 МБ`);
+    await ctx.db.orderFile.create({
+      data: {
+        companyId: ctx.company.id,
+        orderId: order.id,
+        userId: ctx.user.id,
+        name: f.name.slice(0, 200),
+        mime: f.type || "application/octet-stream",
+        size: f.size,
+        data: Buffer.from(await f.arrayBuffer()),
+      },
+    });
+  }
+  await orders.addComment({ db: ctx.db, companyId: ctx.company.id }, order.id, ctx.user.id, `Добавлены файлы: ${files.map((f) => f.name).join(", ")}`);
+  revalidatePath(`/orders/${order.id}`);
+  return "Файлы загружены";
+});
+
+export const deleteFileAction = safe(async (fd) => {
+  const { ctx, order } = await assertOrderAccess(str(fd, "orderId"));
+  const file = await ctx.db.orderFile.findFirst({ where: { id: str(fd, "fileId"), orderId: order.id }, select: { id: true, name: true } });
+  if (!file) throw new Error("Файл не найден");
+  await ctx.db.orderFile.delete({ where: { id: file.id } });
+  await orders.addComment({ db: ctx.db, companyId: ctx.company.id }, order.id, ctx.user.id, `Удалён файл: ${file.name}`);
+  revalidatePath(`/orders/${order.id}`);
 });

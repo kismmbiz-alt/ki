@@ -46,7 +46,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                 <td className="px-3 py-2">
                   <Badge color={o.status.color}>{o.status.name}</Badge>
                 </td>
-                <td className="px-3 py-2">{rub(totals(o.items, 0).total)}</td>
+                <td className="px-3 py-2">{rub(totals(o.items, 0, o).total)}</td>
               </tr>
             ))}
           </Table>

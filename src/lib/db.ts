@@ -24,6 +24,8 @@ export const TENANT_MODELS = new Set<string>([
   "CashTransaction",
   "Sale",
   "SaleItem",
+  "DictItem",
+  "OrderFile",
   "ListingSource",
   "Listing",
 ]);

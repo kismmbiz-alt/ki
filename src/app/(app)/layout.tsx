@@ -1,63 +1,109 @@
+import { cookies } from "next/headers";
+import {
+  BookOpen,
+  ChartColumn,
+  HandCoins,
+  House,
+  LogOut,
+  Moon,
+  Package,
+  Settings,
+  ShoppingCart,
+  Sun,
+  Users,
+  Wallet,
+  Wrench,
+} from "lucide-react";
 import { can, requireUser, ROLE_LABEL } from "@/lib/auth";
 import { logout } from "../(auth)/actions";
-import { switchLocation } from "./actions";
+import { switchLocation, toggleTheme } from "./actions";
 import { NavLink } from "@/components/nav-link";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, company, locations, location } = await requireUser();
+  const dark = (await cookies()).get("theme")?.value !== "light";
   const role = user.role;
+  const I = { size: 18, strokeWidth: 1.8 };
   const nav = [
-    { href: "/orders", label: "Заказы", show: true },
-    { href: "/clients", label: "Клиенты", show: true },
-    { href: "/buyback", label: "Скупка", show: true },
-    { href: "/sales", label: "Продажи", show: can(role, "sales") },
-    { href: "/stock", label: "Склад", show: can(role, "stock") },
-    { href: "/cash", label: "Касса", show: can(role, "cash") },
-    { href: "/reports", label: "Отчёты", show: can(role, "reports") },
-    { href: "/settings", label: "Настройки", show: true },
+    { href: "/dashboard", label: "Главная", icon: <House {...I} />, show: true },
+    { href: "/orders", label: "Заказы", icon: <Wrench {...I} />, show: true },
+    { href: "/clients", label: "Клиенты", icon: <Users {...I} />, show: true },
+    { href: "/buyback", label: "Скупка", icon: <HandCoins {...I} />, show: true },
+    { href: "/sales", label: "Продажи", icon: <ShoppingCart {...I} />, show: can(role, "sales") },
+    { href: "/stock", label: "Склад", icon: <Package {...I} />, show: can(role, "stock") },
+    { href: "/cash", label: "Финансы", icon: <Wallet {...I} />, show: can(role, "cash") },
+    { href: "/reports", label: "Аналитика", icon: <ChartColumn {...I} />, show: can(role, "reports") },
+    { href: "/settings/dicts", label: "Справочники", icon: <BookOpen {...I} />, show: can(role, "settings") },
+    { href: "/settings", label: "Настройки", icon: <Settings {...I} />, show: true },
   ].filter((n) => n.show);
 
   return (
-    <div className="min-h-screen md:flex">
-      <aside className="no-print border-b border-slate-200 bg-white md:sticky md:top-0 md:h-screen md:w-56 md:shrink-0 md:border-b-0 md:border-r">
-        <div className="flex items-center justify-between gap-2 px-4 py-3 md:block">
-          <div>
-            <div className="truncate text-sm font-semibold text-slate-900">{company.name}</div>
-            <div className="truncate text-xs text-slate-500">
-              {user.name} · {ROLE_LABEL[role]}
+    <div className={`min-h-screen md:flex ${dark ? "theme-dark" : ""}`}>
+      <aside className="no-print bg-[#15171c] text-[#e4e7ec] md:sticky md:top-0 md:flex md:h-screen md:w-60 md:shrink-0 md:flex-col">
+        <div className="flex items-center justify-between gap-2 px-4 py-4">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#4f6bff] to-[#7c4dff] text-sm font-bold text-[#fff]">
+              {company.name.slice(0, 1).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-[#fff]">{company.name}</div>
+              <div className="truncate text-xs text-[#7d8494]">{location?.name ?? "нет точки"}</div>
             </div>
           </div>
-          {locations.length > 1 && !user.locationId ? (
-            <form action={switchLocation} className="md:mt-3">
-              <select
-                name="locationId"
-                defaultValue={location?.id}
-                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
-              >
-                {locations.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
-              <button className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-xs">Сменить точку</button>
-            </form>
-          ) : (
-            <div className="text-xs text-slate-500 md:mt-2">📍 {location?.name ?? "нет точки"}</div>
-          )}
         </div>
-        <nav className="flex gap-1 overflow-x-auto px-2 pb-2 md:flex-col md:pb-0">
+        {locations.length > 1 && !user.locationId && (
+          <form action={switchLocation} className="hidden px-4 pb-3 md:flex md:gap-1">
+            <select
+              name="locationId"
+              defaultValue={location?.id}
+              className="min-w-0 flex-1 rounded-md border border-[#31353e] bg-[#1f2228] px-2 py-1 text-xs text-[#e4e7ec]"
+            >
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+            <button className="rounded-md border border-[#31353e] px-2 py-1 text-xs text-[#aab1bf] hover:text-[#fff]">Ок</button>
+          </form>
+        )}
+        <nav className="scroll-thin flex gap-1 overflow-x-auto px-2 pb-2 md:flex-1 md:flex-col md:overflow-y-auto">
           {nav.map((n) => (
-            <NavLink key={n.href} href={n.href}>
+            <NavLink key={n.href} href={n.href} icon={n.icon} variant="side">
               {n.label}
             </NavLink>
           ))}
         </nav>
-        <form action={logout} className="hidden px-4 py-4 md:absolute md:bottom-0 md:block">
-          <button className="text-xs text-slate-500 hover:text-slate-800">Выйти</button>
-        </form>
+        <div className="hidden border-t border-[#262a31] px-3 py-3 md:block">
+          <div className="mb-2 flex items-center gap-2 px-1">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#2a2e36] text-xs font-semibold text-[#cfd4dc]">
+              {user.name
+                .split(/\s+/)
+                .map((w) => w[0])
+                .slice(0, 2)
+                .join("")
+                .toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm text-[#e4e7ec]">{user.name}</div>
+              <div className="text-xs text-[#7d8494]">{ROLE_LABEL[role]}</div>
+            </div>
+          </div>
+          <div className="flex gap-1">
+            <form action={toggleTheme} className="flex-1">
+              <button className="flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[#aab1bf] hover:bg-[#ffffff0d] hover:text-[#fff]">
+                {dark ? <Sun size={14} /> : <Moon size={14} />} {dark ? "Светлая" : "Тёмная"}
+              </button>
+            </form>
+            <form action={logout} className="flex-1">
+              <button className="flex w-full items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[#aab1bf] hover:bg-[#ffffff0d] hover:text-[#fff]">
+                <LogOut size={14} /> Выйти
+              </button>
+            </form>
+          </div>
+        </div>
       </aside>
-      <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
+      <main className="min-w-0 flex-1 bg-slate-50 p-4 md:p-6">{children}</main>
     </div>
   );
 }

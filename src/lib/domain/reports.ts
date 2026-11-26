@@ -16,7 +16,7 @@ export async function periodReport({ db }: Tenant, from: Date, to: Date, locatio
     ordersProfit = 0;
   const masters = new Map<string, { name: string; percent: number; orders: number; services: number; salary: number }>();
   for (const o of closedOrders) {
-    const t = totals(o.items, 0);
+    const t = totals(o.items, 0, o);
     ordersRevenue += t.total;
     ordersProfit += t.profit;
     if (o.master) {

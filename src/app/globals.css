@@ -1,8 +1,70 @@
 @import "tailwindcss";
 
+/*
+ * Тема. Все страницы используют обычные классы Tailwind (bg-white, text-slate-600 …).
+ * В тёмной теме мы переопределяем сами цвета палитры, поэтому любая страница
+ * автоматически становится тёмной без отдельных dark:-классов.
+ * Тёмная тема включается классом .theme-dark на обёртке приложения.
+ */
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --color-brand: #4f6bff;
+  --color-brand-hover: #3d58ea;
+}
+
 body {
-  background: #f8fafc;
+  background: #f4f6fa;
   color: #0f172a;
+}
+
+.theme-dark {
+  color-scheme: dark;
+  --color-white: #1f2228;
+  --color-black: #f1f3f6;
+  --color-slate-50: #181a1f;
+  --color-slate-100: #2a2e36;
+  --color-slate-200: #31353e;
+  --color-slate-300: #3d424d;
+  --color-slate-400: #7d8494;
+  --color-slate-500: #9aa1af;
+  --color-slate-600: #b5bbc6;
+  --color-slate-700: #cfd4dc;
+  --color-slate-800: #e4e7ec;
+  --color-slate-900: #f3f5f8;
+  --color-blue-50: #1f2a4a;
+  --color-blue-100: #26345c;
+  --color-blue-200: #31437a;
+  --color-blue-500: #6b84ff;
+  --color-blue-600: #4f6bff;
+  --color-blue-700: #8ea0ff;
+  --color-red-50: #3a1f23;
+  --color-red-200: #6b2d33;
+  --color-red-500: #f87171;
+  --color-red-600: #f87171;
+  --color-red-700: #fca5a5;
+  --color-green-50: #17301f;
+  --color-green-600: #4ade80;
+  --color-green-700: #4ade80;
+  --color-amber-50: #3a2f17;
+  --color-amber-700: #fbbf24;
+  --color-orange-600: #fb923c;
+  background: var(--color-slate-50);
+  color: var(--color-slate-900);
+}
+
+/* Текст на цветных кнопках всегда белый, в любой теме. */
+.on-accent {
+  color: #fff;
+}
+
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--color-slate-300);
+  border-radius: 8px;
 }
 
 @media print {
@@ -11,5 +73,8 @@ body {
   }
   body {
     background: white;
+  }
+  .page-break {
+    break-after: page;
   }
 }
