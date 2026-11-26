@@ -14,6 +14,7 @@ services:
     depends_on: [db]
     environment:
       DATABASE_URL: postgresql://crm:${DB_PASSWORD:-change-me}@db:5432/crm
+      VK_SERVICE_TOKEN: ${VK_SERVICE_TOKEN:-}
     ports:
       - "3000:3000"
 volumes:

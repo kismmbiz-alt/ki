@@ -3,7 +3,7 @@ import type { Tenant } from "../db";
 
 export const PAY_LABEL: Record<PayMethod, string> = { CASH: "Наличные", CARD: "Карта", TRANSFER: "Перевод" };
 
-export const EXPENSE_CATEGORIES = ["Закупка запчастей", "Аренда", "Зарплата", "Реклама", "Хозяйственные расходы", "Инкассация", "Прочее"];
+export const EXPENSE_CATEGORIES = ["Закупка запчастей", "Выкуп техники", "Аренда", "Зарплата", "Реклама", "Хозяйственные расходы", "Инкассация", "Прочее"];
 export const INCOME_CATEGORIES = ["Внесение в кассу", "Прочий приход"];
 
 export async function addCashTransaction(

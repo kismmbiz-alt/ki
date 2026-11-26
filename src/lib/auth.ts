@@ -75,7 +75,7 @@ export async function requireUser() {
   return { session, user, company: user.company, db, locations, location };
 }
 
-export type Permission = "settings" | "cash" | "reports" | "stock" | "sales" | "allOrders";
+export type Permission = "settings" | "cash" | "reports" | "stock" | "sales" | "allOrders" | "buybackSources";
 
 const RULES: Record<Permission, Role[]> = {
   settings: ["OWNER", "ADMIN"],
@@ -84,6 +84,7 @@ const RULES: Record<Permission, Role[]> = {
   stock: ["OWNER", "ADMIN", "MANAGER"],
   sales: ["OWNER", "ADMIN", "MANAGER"],
   allOrders: ["OWNER", "ADMIN", "MANAGER"],
+  buybackSources: ["OWNER", "ADMIN"],
 };
 
 export function can(role: Role, p: Permission) {

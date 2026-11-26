@@ -9,6 +9,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const nav = [
     { href: "/orders", label: "Заказы", show: true },
     { href: "/clients", label: "Клиенты", show: true },
+    { href: "/buyback", label: "Скупка", show: true },
     { href: "/sales", label: "Продажи", show: can(role, "sales") },
     { href: "/stock", label: "Склад", show: can(role, "stock") },
     { href: "/cash", label: "Касса", show: can(role, "cash") },
