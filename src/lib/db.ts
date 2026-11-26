@@ -26,6 +26,11 @@ export const TENANT_MODELS = new Set<string>([
   "SaleItem",
   "DictItem",
   "OrderFile",
+  "ProductGroup",
+  "Supplier",
+  "StockDoc",
+  "StockDocItem",
+  "CashShift",
   "ListingSource",
   "Listing",
 ]);

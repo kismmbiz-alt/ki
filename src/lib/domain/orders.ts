@@ -205,7 +205,7 @@ export async function addPart(
         productId: product.id,
         name: product.name,
         qty: item.qty,
-        price: item.price ?? product.price,
+        price: item.price ?? product.repairPrice ?? product.price,
         cost: product.cost,
         warrantyDays: item.warrantyDays ?? null,
       },
