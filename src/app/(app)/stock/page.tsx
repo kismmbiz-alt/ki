@@ -1,92 +1,202 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
+import { Download, FolderPlus, Plus, Search } from "lucide-react";
 import { can, requirePermission } from "@/lib/auth";
-import { btn, Card, Field, Input, PageHeader, Table } from "@/components/ui";
+import { btn, Card, Input, PageHeader, Select } from "@/components/ui";
 import { Form, Submit } from "@/components/form";
+import { RowLink } from "@/components/row-link";
 import { rub } from "@/lib/money";
-import { createProductAction } from "./actions";
+import { createProductAction, saveGroupAction } from "./actions";
+import { StockTabs } from "./_ui/tabs";
+import { groupOptions, ProductFields } from "./_ui/product-fields";
 
-export default async function StockPage({ searchParams }: { searchParams: Promise<{ q?: string; low?: string }> }) {
-  const { q, low } = await searchParams;
-  const { db, location, user } = await requirePermission("stock");
-  const where: Prisma.ProductWhereInput = { isActive: true };
-  if (q?.trim()) where.OR = [{ name: { contains: q.trim(), mode: "insensitive" } }, { sku: { contains: q.trim() } }, { barcode: q.trim() }];
-  const products = await db.product.findMany({
-    where,
-    include: { stocks: true },
-    orderBy: { name: "asc" },
-    take: 500,
-  });
+type SP = { q?: string; f?: string; g?: string; new?: string };
+
+export default async function StockPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const sp = await searchParams;
+  const { db, location, locations, user } = await requirePermission("stock");
+  const filter = sp.f ?? "pos";
+  const where: Prisma.ProductWhereInput = { isActive: filter !== "archive" };
+  const q = sp.q?.trim();
+  if (q) where.OR = [{ name: { contains: q, mode: "insensitive" } }, { sku: { contains: q, mode: "insensitive" } }, { barcode: q }];
+  if (sp.g === "none") where.groupId = null;
+  else if (sp.g) where.groupId = sp.g;
+
+  const [groups, suppliers, products, counts, total] = await Promise.all([
+    db.productGroup.findMany({ orderBy: { name: "asc" } }),
+    db.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+    db.product.findMany({ where, include: { stocks: true, group: true, supplier: true }, orderBy: { name: "asc" }, take: 2000 }),
+    db.product.groupBy({ by: ["groupId"], where: { isActive: true }, _count: true }),
+    db.product.count({ where: { isActive: true } }),
+  ]);
+  const countBy = new Map(counts.map((c) => [c.groupId, c._count]));
   const rows = products
     .map((p) => {
       const here = p.stocks.find((s) => s.locationId === location?.id)?.qty ?? 0;
-      const all = p.stocks.reduce((s, x) => s + x.qty, 0);
-      return { p, here, all, lowStock: here <= p.minQty && p.minQty > 0 };
+      const other = p.stocks.filter((s) => s.locationId !== location?.id).reduce((s, x) => s + x.qty, 0);
+      return { p, here, other, low: p.minQty > 0 && here <= p.minQty };
     })
-    .filter((r) => !low || r.lowStock);
+    .filter((r) => (filter === "pos" ? r.here > 0 : filter === "low" ? r.low : filter === "zero" ? r.here <= 0 : true))
+    .sort((a, b) => b.here - a.here || a.p.name.localeCompare(b.p.name));
   const showCost = can(user.role, "reports");
-  const value = rows.reduce((s, r) => s + r.here * r.p.cost, 0);
+  const value = rows.reduce((s, r) => s + Math.max(r.here, 0) * r.p.cost, 0);
+  const qs = (o: Partial<SP>) => {
+    const u = new URLSearchParams();
+    for (const [k, v] of Object.entries({ ...sp, new: undefined, ...o })) if (v) u.set(k, v);
+    return `/stock?${u}`;
+  };
+  const tree = groupOptions(groups);
 
   return (
     <>
-      <PageHeader title={`Склад · ${location?.name ?? ""}`}>
-        <form className="flex gap-2">
-          <Input name="q" defaultValue={q} placeholder="Название, артикул, штрихкод" className="w-64" autoFocus />
-          <button className={btn("secondary")}>Найти</button>
-        </form>
-        <Link href={low ? "/stock" : "/stock?low=1"} className={btn("secondary")}>
-          {low ? "Все товары" : "Заканчиваются"}
+      <PageHeader title="Склад">
+        <a href={`/stock/export?${new URLSearchParams(Object.entries(sp).filter(([, v]) => v) as [string, string][])}`} className={btn("secondary")}>
+          <Download size={16} /> Экспорт
+        </a>
+        <Link href={qs({ new: "1" })} className={btn()}>
+          <Plus size={16} /> Товар
         </Link>
       </PageHeader>
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <Table head={["Товар", "Артикул", "Цена", ...(showCost ? ["Закупка"] : []), "Здесь", "Всего"]} empty="Товаров нет">
-            {rows.map(({ p, here, all, lowStock }) => (
-              <tr key={p.id} className="hover:bg-slate-50">
-                <td className="px-3 py-2">
-                  <Link href={`/stock/${p.id}`} className="text-blue-600 hover:underline">
-                    {p.name}
-                  </Link>
-                </td>
-                <td className="px-3 py-2 text-slate-500">{p.sku}</td>
-                <td className="px-3 py-2">{rub(p.price)}</td>
-                {showCost && <td className="px-3 py-2 text-slate-500">{rub(p.cost)}</td>}
-                <td className={`px-3 py-2 font-medium ${lowStock ? "text-red-600" : ""}`}>{here}</td>
-                <td className="px-3 py-2 text-slate-500">{all}</td>
-              </tr>
+      <StockTabs />
+
+      <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
+        <aside className="space-y-3">
+          <div className="rounded-xl border border-slate-200 bg-white p-2 text-sm">
+            <GroupLink href={qs({ g: undefined })} on={!sp.g} label="Все товары" n={total} />
+            <GroupLink href={qs({ g: "none" })} on={sp.g === "none"} label="Без группы" n={countBy.get(null) ?? 0} />
+            <div className="my-1 border-t border-slate-100" />
+            {tree.map((g) => (
+              <GroupLink key={g.id} href={qs({ g: g.id })} on={sp.g === g.id} label={g.label} n={countBy.get(g.id) ?? 0} />
             ))}
-          </Table>
-          {showCost && <p className="mt-2 text-sm text-slate-500">Товара на точке по закупке: {rub(value)}</p>}
+          </div>
+          <details className="rounded-xl border border-slate-200 bg-white">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm text-blue-600">
+              <FolderPlus size={15} /> Новая группа
+            </summary>
+            <Form action={saveGroupAction} className="space-y-2 border-t border-slate-100 p-3">
+              <Input name="name" placeholder="Название" required />
+              <Select name="parentId" defaultValue="">
+                <option value="">Верхний уровень</option>
+                {tree.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.label}
+                  </option>
+                ))}
+              </Select>
+              <Submit variant="secondary">Создать</Submit>
+            </Form>
+          </details>
+          {sp.g && sp.g !== "none" && (
+            <details className="rounded-xl border border-slate-200 bg-white">
+              <summary className="cursor-pointer list-none px-3 py-2 text-sm text-slate-500">Изменить группу</summary>
+              <Form action={saveGroupAction} className="space-y-2 border-t border-slate-100 p-3" resetOnOk={false}>
+                <input type="hidden" name="id" value={sp.g} />
+                <Input name="name" defaultValue={groups.find((g) => g.id === sp.g)?.name} required />
+                <Select name="parentId" defaultValue={groups.find((g) => g.id === sp.g)?.parentId ?? ""}>
+                  <option value="">Верхний уровень</option>
+                  {tree
+                    .filter((g) => g.id !== sp.g)
+                    .map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.label}
+                      </option>
+                    ))}
+                </Select>
+                <div className="flex gap-2">
+                  <Submit variant="secondary">Сохранить</Submit>
+                  <button name="delete" value="1" className={btn("danger")} formNoValidate>
+                    Удалить
+                  </button>
+                </div>
+              </Form>
+            </details>
+          )}
+        </aside>
+
+        <div className="min-w-0 space-y-3">
+          {sp.new && (
+            <Card title={`Новый товар · приход на «${location?.name ?? ""}»`} actions={<Link href={qs({})} className="text-sm text-slate-500">Закрыть</Link>}>
+              <Form action={createProductAction} className="space-y-3">
+                <ProductFields groups={groups} suppliers={suppliers} defaultGroupId={sp.g !== "none" ? sp.g : undefined} />
+                <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-3">
+                  <Input name="qty" inputMode="numeric" placeholder="Приход, шт" />
+                  <Input name="cost" inputMode="decimal" placeholder="Закупка за шт, ₽" />
+                </div>
+                <Submit>Добавить товар</Submit>
+              </Form>
+            </Card>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <form className="relative">
+              {sp.g && <input type="hidden" name="g" value={sp.g} />}
+              <input type="hidden" name="f" value={filter} />
+              <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" />
+              <Input name="q" defaultValue={q} placeholder="Название, код, штрихкод" className="w-72 pl-9" />
+            </form>
+            {[
+              ["pos", "В наличии"],
+              ["low", "Заканчиваются"],
+              ["zero", "Нет в наличии"],
+              ["all", "Все"],
+              ["archive", "Архив"],
+            ].map(([k, l]) => (
+              <Link key={k} href={qs({ f: k })} className={`rounded-lg px-3 py-1.5 text-sm ${filter === k ? "bg-blue-600 on-accent" : "text-slate-600 hover:bg-slate-100"}`}>
+                {l}
+              </Link>
+            ))}
+          </div>
+
+          <div className="scroll-thin overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-200 text-left text-xs text-slate-500">
+                <tr>
+                  <th className="px-3 py-2.5 font-medium">Наименование · {rows.length}</th>
+                  <th className="px-3 py-2.5 font-medium">Группа</th>
+                  <th className="px-3 py-2.5 font-medium">Поставщик</th>
+                  <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">Кол-во</th>
+                  {locations.length > 1 && <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">Др. точки</th>}
+                  <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">Мин.</th>
+                  {showCost && <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">Закупка</th>}
+                  <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">Розничная</th>
+                  <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">Ремонтная</th>
+                  <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">Минимальная</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rows.map(({ p, here, other, low }) => (
+                  <RowLink key={p.id} href={`/stock/${p.id}`}>
+                    <td className="px-3 py-2">
+                      <div className="text-slate-900">{p.name}</div>
+                      {(p.sku || p.barcode) && <div className="text-xs text-slate-500">{[p.sku && `Код: ${p.sku}`, p.barcode].filter(Boolean).join(" · ")}</div>}
+                    </td>
+                    <td className="px-3 py-2 text-slate-600">{p.group?.name}</td>
+                    <td className="px-3 py-2 text-blue-600">{p.supplier?.name}</td>
+                    <td className={`px-3 py-2 text-right font-semibold ${low ? "text-red-600" : "text-slate-900"}`}>{here}</td>
+                    {locations.length > 1 && <td className="px-3 py-2 text-right whitespace-nowrap text-slate-500">{other}</td>}
+                    <td className="px-3 py-2 text-right whitespace-nowrap text-slate-500">{p.minQty || ""}</td>
+                    {showCost && <td className="px-3 py-2 text-right whitespace-nowrap text-slate-500">{p.cost ? rub(p.cost) : ""}</td>}
+                    <td className="px-3 py-2 text-right whitespace-nowrap">{rub(p.price)}</td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap text-slate-600">{p.repairPrice != null ? rub(p.repairPrice) : ""}</td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap text-slate-600">{p.minPrice != null ? rub(p.minPrice) : ""}</td>
+                  </RowLink>
+                ))}
+              </tbody>
+            </table>
+            {!rows.length && <p className="p-10 text-center text-sm text-slate-400">Товаров нет</p>}
+          </div>
+          {showCost && <p className="text-sm text-slate-500">Товара на точке по закупочной цене: {rub(value)}</p>}
         </div>
-        <Card title="Новый товар или запчасть">
-          <Form action={createProductAction} className="space-y-3">
-            <Field label="Название *">
-              <Input name="name" required placeholder="Дисплей iPhone 11 (оригинал)" />
-            </Field>
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Артикул">
-                <Input name="sku" />
-              </Field>
-              <Field label="Штрихкод">
-                <Input name="barcode" />
-              </Field>
-              <Field label="Цена продажи, ₽">
-                <Input name="price" inputMode="decimal" required />
-              </Field>
-              <Field label="Мин. остаток">
-                <Input name="minQty" inputMode="numeric" />
-              </Field>
-              <Field label="Приход, шт">
-                <Input name="qty" inputMode="numeric" />
-              </Field>
-              <Field label="Закупка за шт, ₽">
-                <Input name="cost" inputMode="decimal" />
-              </Field>
-            </div>
-            <Submit>Добавить</Submit>
-          </Form>
-        </Card>
       </div>
     </>
+  );
+}
+
+function GroupLink({ href, on, label, n }: { href: string; on: boolean; label: string; n: number }) {
+  return (
+    <Link href={href} className={`flex items-center justify-between rounded-md px-2.5 py-1.5 ${on ? "bg-blue-50 font-medium text-blue-700" : "text-slate-700 hover:bg-slate-100"}`}>
+      <span className="truncate">{label}</span>
+      <span className="ml-2 text-xs text-slate-400">{n}</span>
+    </Link>
   );
 }

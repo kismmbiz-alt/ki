@@ -1,0 +1,41 @@
+import { notFound } from "next/navigation";
+import { requirePermission } from "@/lib/auth";
+import { Card, dt, PageHeader, Table } from "@/components/ui";
+import { rub } from "@/lib/money";
+import { DOC_LABEL } from "@/lib/domain/stock";
+
+export default async function DocPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const { db } = await requirePermission("stock");
+  const d = await db.stockDoc.findUnique({ where: { id }, include: { items: true, location: true, toLocation: true, supplier: true } });
+  if (!d) notFound();
+  const user = d.userId ? await db.user.findUnique({ where: { id: d.userId } }) : null;
+  return (
+    <>
+      <PageHeader title={`${DOC_LABEL[d.type]} №${d.number}`} back="/stock/docs" />
+      <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+        <Table head={["Товар", d.type === "INVENTORY" ? "Разница" : "Кол-во", "Закупка за шт", "Сумма"]} empty="Нет строк">
+          {d.items.map((i) => (
+            <tr key={i.id}>
+              <td className="px-3 py-2">{i.name}</td>
+              <td className={`px-3 py-2 font-medium ${i.qty < 0 ? "text-red-600" : ""}`}>{d.type === "INVENTORY" && i.qty > 0 ? `+${i.qty}` : i.qty}</td>
+              <td className="px-3 py-2">{rub(i.cost)}</td>
+              <td className="px-3 py-2">{rub(i.cost * i.qty)}</td>
+            </tr>
+          ))}
+        </Table>
+        <Card title="Документ">
+          <dl className="space-y-1 text-sm">
+            <div>Дата: {dt(d.createdAt)}</div>
+            <div>Точка: {d.location.name}</div>
+            {d.toLocation && <div>Куда: {d.toLocation.name}</div>}
+            {d.supplier && <div>Поставщик: {d.supplier.name}</div>}
+            {d.comment && <div>Комментарий: {d.comment}</div>}
+            <div>Провёл: {user?.name ?? "—"}</div>
+            <div className="pt-2 font-semibold">Итого по закупке: {rub(d.total)}</div>
+          </dl>
+        </Card>
+      </div>
+    </>
+  );
+}

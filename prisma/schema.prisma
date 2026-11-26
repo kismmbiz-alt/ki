@@ -57,6 +57,15 @@ enum StockMoveType {
   SALE
   ADJUST
   RETURN
+  TRANSFER
+  WRITEOFF
+}
+
+enum StockDocType {
+  RECEIPT // оприходование от поставщика
+  TRANSFER // перемещение между точками
+  WRITEOFF // списание
+  INVENTORY // инвентаризация
 }
 
 model Company {
@@ -68,6 +77,7 @@ model Company {
   warrantyDays Int      @default(30)
   orderSeq     Int      @default(0)
   saleSeq      Int      @default(0)
+  docSeq       Int      @default(0)
   createdAt    DateTime @default(now())
 
   locations      Location[]
@@ -88,6 +98,11 @@ model Company {
   dictItems      DictItem[]
   orderFiles     OrderFile[]
   listingSources ListingSource[]
+  productGroups  ProductGroup[]
+  suppliers      Supplier[]
+  stockDocs      StockDoc[]
+  stockDocItems  StockDocItem[]
+  cashShifts     CashShift[]
   listings       Listing[]
 }
 
@@ -107,6 +122,9 @@ model Location {
   stockMoves   StockMove[]
   transactions CashTransaction[]
   sales        Sale[]
+  stockDocs    StockDoc[]        @relation("DocFrom")
+  stockDocsTo  StockDoc[]        @relation("DocTo")
+  cashShifts   CashShift[]
 
   @@unique([companyId, id])
   @@index([companyId])
@@ -305,18 +323,25 @@ model Service {
 }
 
 model Product {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String
-  sku       String?
-  barcode   String?
-  price     Int // цена продажи, коп.
-  cost      Int      @default(0) // средняя закупочная, коп.
-  minQty    Int      @default(0)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  companyId   String
+  name        String
+  sku         String?
+  barcode     String?
+  price       Int // розничная цена (продажа), коп.
+  repairPrice Int? // ремонтная цена (в заказ), коп.
+  minPrice    Int? // минимальная цена, ниже которой продавать нельзя, коп.
+  cost        Int      @default(0) // средняя закупочная, коп.
+  minQty      Int      @default(0)
+  groupId     String?
+  supplierId  String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
 
-  company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company    Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  group      ProductGroup?  @relation(fields: [companyId, groupId], references: [companyId, id])
+  supplier   Supplier?      @relation(fields: [companyId, supplierId], references: [companyId, id])
+  docItems   StockDocItem[]
   stocks     Stock[]
   moves      StockMove[]
   orderItems OrderItem[]
@@ -390,7 +415,10 @@ model Sale {
   number     Int
   clientId   String?
   userId     String?
-  total      Int
+  total      Int // у возврата сумма отрицательная
+  discount   Int      @default(0) // скидка на чек, коп.
+  isReturn   Boolean  @default(false)
+  returnOfId String? // возврат: исходная продажа
   createdAt  DateTime @default(now())
 
   company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -520,4 +548,98 @@ model Listing {
   @@unique([companyId, url])
   @@index([companyId, status, createdAt])
   @@index([companyId, assigneeId])
+}
+
+// ---------- Склад: группы, поставщики, документы ----------
+
+model ProductGroup {
+  id        String  @id @default(cuid())
+  companyId String
+  name      String
+  parentId  String?
+  sort      Int     @default(0)
+
+  company  Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent   ProductGroup?  @relation("GroupTree", fields: [companyId, parentId], references: [companyId, id])
+  children ProductGroup[] @relation("GroupTree")
+  products Product[]
+
+  @@unique([companyId, id])
+  @@index([companyId])
+}
+
+model Supplier {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  phone     String?
+  notes     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  company  Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products Product[]
+  docs     StockDoc[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, name])
+}
+
+model StockDoc {
+  id           String       @id @default(cuid())
+  companyId    String
+  number       Int
+  type         StockDocType
+  locationId   String
+  toLocationId String?
+  supplierId   String?
+  userId       String?
+  comment      String?
+  total        Int          @default(0) // сумма по закупке, коп.
+  createdAt    DateTime     @default(now())
+
+  company    Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location   Location       @relation("DocFrom", fields: [companyId, locationId], references: [companyId, id])
+  toLocation Location?      @relation("DocTo", fields: [companyId, toLocationId], references: [companyId, id])
+  supplier   Supplier?      @relation(fields: [companyId, supplierId], references: [companyId, id])
+  items      StockDocItem[]
+
+  @@unique([companyId, id])
+  @@index([companyId, createdAt])
+}
+
+model StockDocItem {
+  id        String @id @default(cuid())
+  companyId String
+  docId     String
+  productId String
+  name      String
+  qty       Int // для инвентаризации — разница (факт минус учёт)
+  cost      Int    @default(0)
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  doc     StockDoc @relation(fields: [companyId, docId], references: [companyId, id], onDelete: Cascade)
+  product Product  @relation(fields: [companyId, productId], references: [companyId, id])
+
+  @@index([companyId, docId])
+}
+
+// Кассовая смена на точке: открытие с остатком наличных, закрытие с пересчётом.
+model CashShift {
+  id           String    @id @default(cuid())
+  companyId    String
+  locationId   String
+  openedById   String?
+  closedById   String?
+  openCash     Int       @default(0) // наличные на начало, коп.
+  expectedCash Int? // по учёту на момент закрытия
+  closeCash    Int? // пересчитали фактически
+  comment      String?
+  openedAt     DateTime  @default(now())
+  closedAt     DateTime?
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location Location @relation(fields: [companyId, locationId], references: [companyId, id])
+
+  @@index([companyId, locationId, openedAt])
 }

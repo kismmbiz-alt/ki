@@ -408,7 +408,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
                       </option>
                       {products.map((p) => (
                         <option key={p.id} value={p.id}>
-                          {p.name} · {rub(p.price)} · ост. {p.stocks[0]?.qty ?? 0}
+                          {p.name} · {rub(p.repairPrice ?? p.price)} · ост. {p.stocks[0]?.qty ?? 0}
                         </option>
                       ))}
                     </Select>
