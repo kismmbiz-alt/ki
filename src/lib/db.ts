@@ -24,6 +24,8 @@ export const TENANT_MODELS = new Set<string>([
   "CashTransaction",
   "Sale",
   "SaleItem",
+  "ListingSource",
+  "Listing",
 ]);
 
 const WHERE_OPS = new Set([
