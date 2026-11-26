@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import {
   BookOpen,
   ChartColumn,
+  HandCoins,
   House,
   LogOut,
   Moon,
@@ -27,6 +28,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     { href: "/dashboard", label: "Главная", icon: <House {...I} />, show: true },
     { href: "/orders", label: "Заказы", icon: <Wrench {...I} />, show: true },
     { href: "/clients", label: "Клиенты", icon: <Users {...I} />, show: true },
+    { href: "/buyback", label: "Скупка", icon: <HandCoins {...I} />, show: true },
     { href: "/sales", label: "Продажи", icon: <ShoppingCart {...I} />, show: can(role, "sales") },
     { href: "/stock", label: "Склад", icon: <Package {...I} />, show: can(role, "stock") },
     { href: "/cash", label: "Финансы", icon: <Wallet {...I} />, show: can(role, "cash") },

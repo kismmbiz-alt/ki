@@ -70,23 +70,25 @@ model Company {
   saleSeq      Int      @default(0)
   createdAt    DateTime @default(now())
 
-  locations    Location[]
-  users        User[]
-  clients      Client[]
-  statuses     OrderStatus[]
-  orders       Order[]
-  orderItems   OrderItem[]
-  orderEvents  OrderEvent[]
-  services     Service[]
-  products     Product[]
-  stocks       Stock[]
-  stockMoves   StockMove[]
-  transactions CashTransaction[]
-  sales        Sale[]
-  saleItems    SaleItem[]
-  adSources    AdSource[]
-  dictItems    DictItem[]
-  orderFiles   OrderFile[]
+  locations      Location[]
+  users          User[]
+  clients        Client[]
+  statuses       OrderStatus[]
+  orders         Order[]
+  orderItems     OrderItem[]
+  orderEvents    OrderEvent[]
+  services       Service[]
+  products       Product[]
+  stocks         Stock[]
+  stockMoves     StockMove[]
+  transactions   CashTransaction[]
+  sales          Sale[]
+  saleItems      SaleItem[]
+  adSources      AdSource[]
+  dictItems      DictItem[]
+  orderFiles     OrderFile[]
+  listingSources ListingSource[]
+  listings       Listing[]
 }
 
 model Location {
@@ -135,6 +137,7 @@ model User {
   transactions    CashTransaction[]
   stockMoves      StockMove[]
   sales           Sale[]
+  listingsTaken   Listing[]         @relation("ListingAssignee")
 
   @@unique([companyId, id])
   @@index([companyId])
@@ -318,6 +321,7 @@ model Product {
   moves      StockMove[]
   orderItems OrderItem[]
   saleItems  SaleItem[]
+  listings   Listing[]
 
   @@unique([companyId, id])
   @@index([companyId])
@@ -448,4 +452,72 @@ model OrderFile {
   order   Order   @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Cascade)
 
   @@index([companyId, orderId])
+}
+
+// ---------- Скупка: источники объявлений, лента, выкуп ----------
+
+enum ListingSourceKind {
+  VK
+  TELEGRAM
+  AVITO
+  YOULA
+}
+
+enum ListingStatus {
+  NEW // пришло, никто не взял
+  IN_WORK // сотрудник взял в работу
+  BOUGHT // выкуплено
+  REJECTED // не подошло
+}
+
+model ListingSource {
+  id            String            @id @default(cuid())
+  companyId     String
+  kind          ListingSourceKind
+  name          String
+  url           String
+  keywords      String            @default("") // через запятую; пусто — брать все посты
+  stopWords     String            @default("") // через запятую; такие посты пропускаем
+  isActive      Boolean           @default(true)
+  lastCheckedAt DateTime?
+  lastError     String?
+  lastFound     Int               @default(0)
+  createdAt     DateTime          @default(now())
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listings Listing[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, url])
+  @@index([companyId])
+}
+
+model Listing {
+  id           String        @id @default(cuid())
+  companyId    String
+  sourceId     String? // null — добавлено вручную
+  url          String
+  title        String
+  text         String        @default("")
+  price        Int? // цена в объявлении, коп.
+  photoUrl     String?
+  postedAt     DateTime?
+  status       ListingStatus @default(NEW)
+  assigneeId   String?
+  takenAt      DateTime?
+  boughtAt     DateTime?
+  buyPrice     Int? // за сколько выкупили, коп.
+  productId    String? // товар на складе, созданный при выкупе
+  rejectReason String?
+  createdAt    DateTime      @default(now())
+
+  company  Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  source   ListingSource? @relation(fields: [companyId, sourceId], references: [companyId, id])
+  assignee User?          @relation("ListingAssignee", fields: [companyId, assigneeId], references: [companyId, id])
+  product  Product?       @relation(fields: [companyId, productId], references: [companyId, id])
+
+  @@unique([companyId, id])
+  @@unique([companyId, url])
+  @@index([companyId, status, createdAt])
+  @@index([companyId, assigneeId])
 }

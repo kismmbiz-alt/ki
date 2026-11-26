@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-export function NavLink({ href, children, icon, variant = "tab" }: { href: string; children: React.ReactNode; icon?: React.ReactNode; variant?: "tab" | "side" }) {
+export function NavLink({ href, children, icon, variant = "tab", exact = false }: { href: string; children: React.ReactNode; icon?: React.ReactNode; variant?: "tab" | "side"; exact?: boolean }) {
   const path = usePathname();
   const active =
-    path === href || (variant === "side" && path.startsWith(href + "/") && !(href === "/settings" && path.startsWith("/settings/dicts")));
+    path === href ||
+    (variant === "side" && path.startsWith(href + "/") && !(href === "/settings" && path.startsWith("/settings/dicts"))) ||
+    (variant === "tab" && !exact && href !== "/settings" && path.startsWith(href + "/"));
   if (variant === "side")
     return (
       <Link
