@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { can, requireLocation, requirePermission } from "@/lib/auth";
 import { int, opt, safe, str } from "@/lib/action";
 import { toKop } from "@/lib/money";
-import { createStockDoc, payStockDoc, receiveStock, setStock, type DocInput } from "@/lib/domain/stock";
+import { createStockDoc, parseSerials, payStockDoc, receiveStock, setStock, type DocInput } from "@/lib/domain/stock";
 import { normalizePhone } from "@/lib/domain/orders";
 import { redirect } from "next/navigation";
 import { saveProductPrices } from "@/lib/domain/prices";
@@ -142,6 +142,7 @@ type RawItem = {
   price?: string;
   repairPrice?: string;
   minPrice?: string;
+  serials?: string;
   newProduct?: { name: string; groupId?: string; sku?: string; article?: string; barcode?: string; unit?: string; warrantyDays?: string; country?: string; description?: string; isSerial?: boolean };
 };
 
@@ -196,6 +197,7 @@ export const stockDocAction = safe(async (fd) => {
       price: kopOrNull(r.price),
       repairPrice: kopOrNull(r.repairPrice),
       minPrice: kopOrNull(r.minPrice),
+      serials: parseSerials(r.serials),
     })),
   });
 

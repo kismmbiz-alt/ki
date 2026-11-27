@@ -1,18 +1,31 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BookOpen, PackagePlus, Plus, Trash2, X } from "lucide-react";
+import { BookOpen, FileUp, PackagePlus, Plus, Trash2, X } from "lucide-react";
 import { inputCls } from "./ui";
 
-type P = { id: string; name: string; sku: string | null; barcode: string | null; groupId: string | null; qty: number; cost: number; price: number; repairPrice: number | null; minPrice: number | null };
+type P = { id: string; name: string; sku: string | null; barcode: string | null; groupId: string | null; qty: number; cost: number; price: number; repairPrice: number | null; minPrice: number | null; isSerial?: boolean };
 type Opt = { id: string; name: string };
 type NewP = { name: string; groupId: string; sku: string; article: string; barcode: string; unit: string; warrantyDays: string; country: string; description: string; isSerial: boolean };
-type Row = { key: string; productId?: string; newProduct?: NewP; qty: string; cost: string; price: string; repairPrice: string; minPrice: string };
+type Row = { key: string; productId?: string; newProduct?: NewP; qty: string; cost: string; price: string; repairPrice: string; minPrice: string; serials?: string };
 
 const rubStr = (k: number | null | undefined) => (k == null ? "" : String(k / 100));
 const num = (s: string) => Number(String(s).replace(",", ".").replace(/\s/g, "")) || 0;
 const fmt = (v: number) => v.toLocaleString("ru-RU", { maximumFractionDigits: 2 }) + " ₽";
 const emptyNew = (name = ""): NewP => ({ name, groupId: "", sku: "", article: "", barcode: "", unit: "шт", warrantyDays: "", country: "", description: "", isSerial: false });
+
+/** Строки из Excel (вставка) или CSV: код/штрихкод/название; кол-во; закупка; розничная. */
+export function parseImport(text: string) {
+  const out: { key: string; qty: string; cost: string; price: string }[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const sep = line.includes("\t") ? "\t" : line.includes(";") ? ";" : ",";
+    const [key = "", qty = "1", cost = "", price = ""] = line.split(sep).map((c) => c.trim().replace(/^"|"$/g, ""));
+    if (!key || /^(наимен|назван|товар|код|артикул|штрих)/i.test(key)) continue;
+    out.push({ key, qty: qty.replace(/\s/g, "") || "1", cost: cost.replace(/\s|₽/g, ""), price: price.replace(/\s|₽/g, "") });
+  }
+  return out;
+}
 
 const Lbl = ({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string }) => (
   <label className={`block text-xs text-slate-500 ${className}`}>
@@ -50,6 +63,8 @@ export function ReceiptForm({
   const [card, setCard] = useState<(NewP & { qty: string; cost: string; price: string; repairPrice: string; minPrice: string }) | null>(null);
   const [dict, setDict] = useState<string | null>(null);
   const [pay, setPay] = useState("");
+  const [imp, setImp] = useState<string | null>(null);
+  const [impNote, setImpNote] = useState("");
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
   const needle = q.trim().toLowerCase();
   const found = needle ? products.filter((p) => p.barcode === q.trim() || p.sku?.toLowerCase() === needle || p.name.toLowerCase().includes(needle)).slice(0, 10) : [];
@@ -68,6 +83,31 @@ export function ReceiptForm({
   const dictList = dict === null ? [] : products.filter((p) => (dict === "" ? true : dict === "none" ? !p.groupId : dictGroup?.ids.includes(p.groupId ?? ""))).slice(0, 200);
 
   const payload = rows.map(({ key: _k, ...r }) => r);
+  const serialOf = (r: Row) => (r.productId ? byId.get(r.productId)?.isSerial : r.newProduct?.isSerial) ?? false;
+  const snCount = (v?: string) => new Set((v ?? "").split(/[\s,;]+/).filter(Boolean)).size;
+
+  const runImport = () => {
+    const lines = parseImport(imp ?? "");
+    let found = 0;
+    let created = 0;
+    const next = [...rows];
+    for (const l of lines) {
+      const k = l.key.toLowerCase();
+      const p = products.find((x) => x.barcode === l.key || x.sku?.toLowerCase() === k) ?? products.find((x) => x.name.toLowerCase() === k);
+      if (p) {
+        found++;
+        const at = next.findIndex((x) => x.productId === p.id);
+        if (at >= 0) next[at] = { ...next[at], qty: String(num(next[at].qty) + num(l.qty)) };
+        else next.push({ key: p.id, productId: p.id, qty: l.qty, cost: l.cost || rubStr(p.cost), price: l.price || rubStr(p.price), repairPrice: rubStr(p.repairPrice), minPrice: rubStr(p.minPrice) });
+      } else {
+        created++;
+        next.push({ key: `imp-${Date.now()}-${next.length}`, newProduct: emptyNew(l.key), qty: l.qty, cost: l.cost, price: l.price, repairPrice: "", minPrice: "" });
+      }
+    }
+    setRows(next);
+    setImpNote(lines.length ? `Добавлено строк: ${lines.length}. Нашлось в справочнике: ${found}, новых карточек: ${created}.` : "Не нашёл строк. Нужны колонки: название или код, количество, закупка, розничная.");
+    if (lines.length) setImp(null);
+  };
   const set2 = <K extends keyof NonNullable<typeof card>>(k: K, v: NonNullable<typeof card>[K]) => setCard((c) => (c ? { ...c, [k]: v } : c));
 
   return (
@@ -203,7 +243,40 @@ export function ReceiptForm({
           <button type="button" onClick={() => setDict(dict === null ? "" : null)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
             <BookOpen size={16} /> Из справочника
           </button>
+          <button type="button" onClick={() => setImp(imp === null ? "" : null)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
+            <FileUp size={16} /> Из файла
+          </button>
         </div>
+        {impNote && imp === null && <p className="mb-3 text-sm text-emerald-700">{impNote}</p>}
+
+        {/* Загрузка строк из Excel/CSV */}
+        {imp !== null && (
+          <div className="mb-4 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+            <div className="flex items-center justify-between">
+              <b className="text-slate-800">Загрузить товары из файла</b>
+              <button type="button" onClick={() => setImp(null)} className="rounded p-1 text-slate-400 hover:text-slate-700" aria-label="Закрыть">
+                <X size={16} />
+              </button>
+            </div>
+            <p className="text-slate-500">
+              Колонки по порядку: <b>название, код или штрихкод</b> · <b>количество</b> · <b>закупочная цена</b> · <b>розничная цена</b>. Выделите строки в Excel, скопируйте и вставьте сюда, или выберите файл CSV. Товары, которых нет в справочнике, станут новыми карточками.
+            </p>
+            <input
+              type="file"
+              accept=".csv,.txt,text/csv"
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                if (f) setImp(await f.text());
+              }}
+              className="block text-xs"
+            />
+            <textarea value={imp} onChange={(e) => setImp(e.target.value)} rows={6} className={inputCls} placeholder={"iPhone 13 дисплей\t2\t3500\t6900\nАКБ Samsung A51\t5\t800\t1990"} />
+            {impNote && <p className="text-amber-700">{impNote}</p>}
+            <button type="button" onClick={runImport} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700">
+              Добавить строки
+            </button>
+          </div>
+        )}
 
         {/* Справочник товаров по группам */}
         {dict !== null && (
@@ -341,6 +414,24 @@ export function ReceiptForm({
                     <td className="py-2 pr-2">
                       <div className="text-slate-800">{p?.name ?? r.newProduct?.name}</div>
                       <div className="text-xs text-slate-400">{r.newProduct ? <span className="text-blue-600">новая карточка</span> : `на складах ${p?.qty ?? 0} шт.`}</div>
+                      {serialOf(r) || r.serials !== undefined ? (
+                        <div className="mt-1">
+                          <textarea
+                            value={r.serials ?? ""}
+                            onChange={(e) => set(i, "serials", e.target.value)}
+                            rows={Math.min(Math.max(num(r.qty), 1), 4)}
+                            placeholder="IMEI / S/N — по одному в строке"
+                            className={`${inputCls} font-mono text-xs`}
+                          />
+                          <div className={`text-xs ${serialOf(r) && snCount(r.serials) !== num(r.qty) ? "text-red-600" : "text-slate-400"}`}>
+                            Серийных номеров: {snCount(r.serials)} из {num(r.qty)}
+                          </div>
+                        </div>
+                      ) : (
+                        <button type="button" onClick={() => set(i, "serials", "")} className="text-xs text-blue-600 hover:underline">
+                          + серийные номера
+                        </button>
+                      )}
                     </td>
                     {(["qty", "cost"] as const).map((k) => (
                       <td key={k} className={k === "qty" ? "py-2" : "py-2 pl-2"}>

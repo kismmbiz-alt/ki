@@ -44,6 +44,7 @@ export default async function DocPage({ params, searchParams }: { params: Promis
                 <Link href={`/stock/${i.productId}`} className="text-blue-600 hover:underline">
                   {i.name}
                 </Link>
+                {i.serials && <div className="mt-0.5 font-mono text-xs whitespace-pre-line text-slate-500">S/N: {i.serials.split("\n").join(", ")}</div>}
               </td>
               <td className={`px-3 py-2 font-medium ${i.qty < 0 ? "text-red-600" : ""}`}>{d.type === "INVENTORY" && i.qty > 0 ? `+${i.qty}` : i.qty}</td>
               <td className="px-3 py-2">{rub(i.cost)}</td>

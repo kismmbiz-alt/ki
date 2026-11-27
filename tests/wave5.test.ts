@@ -82,7 +82,9 @@ describe("аналитика продаж по группам", () => {
   });
 });
 
-import { createStockDoc, docDebt, payStockDoc } from "@/lib/domain/stock";
+import { createStockDoc, docDebt, parseSerials, payStockDoc } from "@/lib/domain/stock";
+import { findDocs } from "@/lib/domain/stock-docs";
+import { parseImport } from "@/components/receipt-form";
 
 describe("поступление как в LiveSklad", () => {
   it("новая карточка товара с ценами, клиент-источник, частичная оплата и долг", async () => {
@@ -98,7 +100,7 @@ describe("поступление как в LiveSklad", () => {
       userId: a.owner.id,
       inDocNo: "Н-15",
       items: [
-        { newProduct: { name: "iPhone 13 128GB Midnight", groupId: grp.id, description: "128 ГБ, чёрный, АКБ 89%", isSerial: true, warrantyDays: 30 }, qty: 1, cost: 3000000, price: 4200000, minPrice: 3900000 },
+        { newProduct: { name: "iPhone 13 128GB Midnight", groupId: grp.id, description: "128 ГБ, чёрный, АКБ 89%", isSerial: true, warrantyDays: 30 }, qty: 1, cost: 3000000, price: 4200000, minPrice: 3900000, serials: ["356938035643809"] },
         { productId: old.id, qty: 10, cost: 5000, price: 60000 },
       ],
     });
@@ -117,6 +119,30 @@ describe("поступление как в LiveSklad", () => {
     const cash = await t.db.cashTransaction.findFirstOrThrow({ where: { comment: { startsWith: `Поступление №${doc.number}` } } });
     expect(cash.amount).toBe(-1000000);
     expect(cash.category).toBe("Выкуп техники");
+    const it0 = await t.db.stockDocItem.findFirstOrThrow({ where: { docId: doc.id, productId: np.id } });
+    expect(it0.serials).toBe("356938035643809");
+    const move = await t.db.stockMove.findFirstOrThrow({ where: { productId: np.id } });
+    expect(move.link).toBe(`/stock/docs/${doc.id}`);
+  });
+
+  it("серийный товар без IMEI не проводится; фильтры списка документов; загрузка из Excel", async () => {
+    const a = await createCompany({ companyName: "Приход2", ownerName: "Кирилл", email: `r2-${uniq()}@test.ru`, password: "password123" });
+    const t = tenant(a.company.id);
+    const ph = await t.db.product.create({ data: { companyId: a.company.id, name: "iPhone 12", isSerial: true, price: 0 } });
+    const sup = await t.db.supplier.create({ data: { companyId: a.company.id, name: "ГринСпарк" } });
+    await expect(createStockDoc(t, { type: "RECEIPT", locationId: a.location.id, userId: a.owner.id, items: [{ productId: ph.id, qty: 2, cost: 100, serials: ["111"] }] })).rejects.toThrow(/серийный товар/);
+    expect(parseSerials("111, 222\n222 333")).toEqual(["111", "222", "333"]);
+    const doc = await createStockDoc(t, { type: "RECEIPT", locationId: a.location.id, supplierId: sup.id, userId: a.owner.id, items: [{ productId: ph.id, qty: 2, cost: 100, serials: ["111", "222"] }] });
+    const ids = async (f: Parameters<typeof findDocs>[3]) => (await findDocs(t.db, ["RECEIPT"], a.location.id, f)).map((d) => d.id);
+    expect(await ids({ q: "гринспарк" })).toEqual([doc.id]);
+    expect(await ids({ q: String(doc.number) })).toEqual([doc.id]);
+    expect(await ids({ q: "iphone 12" })).toEqual([doc.id]);
+    expect(await ids({ q: "нет такого" })).toEqual([]);
+    expect(await ids({ from: "2000-01-01", to: "2000-01-02" })).toEqual([]);
+    expect(parseImport("Наименование\tКол-во\tЗакупка\niPhone 12\t2\t1 500\t3000\nАКБ;5;800")).toEqual([
+      { key: "iPhone 12", qty: "2", cost: "1500", price: "3000" },
+      { key: "АКБ", qty: "5", cost: "800", price: "" },
+    ]);
   });
 });
 

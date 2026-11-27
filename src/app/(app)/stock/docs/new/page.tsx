@@ -49,7 +49,7 @@ export default async function NewDocPage({ searchParams }: { searchParams: Promi
         <Form action={stockDocAction} resetOnOk={false}>
           <input type="hidden" name="type" value="RECEIPT" />
           <ReceiptForm
-            products={all.map((p) => ({ id: p.id, name: p.name, sku: p.sku, barcode: p.barcode, groupId: p.groupId, qty: p.stocks.reduce((a, x) => a + x.qty, 0), cost: p.cost, price: p.price, repairPrice: p.repairPrice, minPrice: p.minPrice }))}
+            products={all.map((p) => ({ id: p.id, name: p.name, sku: p.sku, barcode: p.barcode, groupId: p.groupId, qty: p.stocks.reduce((a, x) => a + x.qty, 0), cost: p.cost, price: p.price, repairPrice: p.repairPrice, minPrice: p.minPrice, isSerial: p.isSerial }))}
             groups={flattenGroups(groups).map((g) => ({ id: g.id, label: indentLabel(g.name, g.depth), ids: withDescendants(groups, g.id) }))}
             warehouses={warehouses.map((x) => ({ id: x.id, name: x.name }))}
             suppliers={suppliers.map((x) => ({ id: x.id, name: x.name }))}

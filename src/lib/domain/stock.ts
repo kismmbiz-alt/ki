@@ -148,7 +148,12 @@ export type DocItemInput = {
   price?: number | null;
   repairPrice?: number | null;
   minPrice?: number | null;
+  /** Серийные номера (IMEI/S/N) по одному на штуку. */
+  serials?: string[];
 };
+
+/** Разбирает серийные номера из текста: по строкам, запятым или пробелам, без повторов. */
+export const parseSerials = (v: unknown) => [...new Set(String(v ?? "").split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean))];
 
 /**
  * Складской документ: поступление, перемещение, списание, возврат поставщику или инвентаризация.
@@ -246,8 +251,11 @@ export async function createStockDoc({ db, companyId }: Tenant, d: DocInput) {
         if (qty === 0) continue;
         await moveStockTx(tx, { productId: p.id, warehouseId: wh.id, qty, type: "ADJUST", userId: d.userId, comment: label, link });
       }
+      const serials = i.serials?.length ? i.serials : [];
+      if (d.type === "RECEIPT" && p.isSerial && serials.length !== qty)
+        throw new Error(`«${p.name}» — серийный товар: укажите ${qty} серийных номеров (IMEI/S/N), сейчас ${serials.length}`);
       total += qty * cost;
-      await tx.stockDocItem.create({ data: { companyId, docId: doc.id, productId: p.id, name: p.name, qty, cost } });
+      await tx.stockDocItem.create({ data: { companyId, docId: doc.id, productId: p.id, name: p.name, qty, cost, serials: serials.length ? serials.join("\n") : null } });
     }
     await logAction(tx, {
       companyId,
