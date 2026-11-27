@@ -437,7 +437,7 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
   if (data.cash?.length) {
     const old = await db.cashTransaction.findMany({
       where: { orderId: null, saleId: null },
-      select: { id: true, createdAt: true, amount: true, origAmount: true, deletedAt: true, category: true, transferId: true, cashboxId: true },
+      select: { id: true, createdAt: true, amount: true, origAmount: true, deletedAt: true, category: true, transferId: true, cashboxId: true, supplierId: true, recipientId: true },
     });
     // уже перенесённые: ключ — дата, сумма и статья (у удалённых — исходная сумма)
     const seen = new Map<string, typeof old>();
@@ -468,8 +468,11 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
         used.add(twin.id);
         rep.skippedCash++;
         if (o.dryRun) await boxId(c.cashbox);
-        else if (c.cashbox || c.transferKey) {
-          const data: { cashboxId?: string; transferId?: string } = {};
+        else if (c.cashbox || c.transferKey || c.supplier || c.recipient) {
+          const data: { cashboxId?: string; transferId?: string; supplierId?: string; recipientId?: string } = {};
+          if (c.supplier && !twin.supplierId) data.supplierId = (await supplierId(c.supplier)) ?? undefined;
+          if (c.recipient && !twin.recipientId) data.recipientId = userId(c.recipient) ?? undefined;
+          for (const k of ["supplierId", "recipientId"] as const) if (!data[k]) delete data[k];
           const box = await boxId(c.cashbox);
           if (c.cashbox && twin.cashboxId !== box) data.cashboxId = box;
           if (c.transferKey && !twin.transferId) data.transferId = transfers.get(c.transferKey) ?? crypto.randomUUID();
