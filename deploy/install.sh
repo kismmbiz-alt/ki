@@ -61,7 +61,7 @@ sudo -u "$APP_USER" bash -c "cd $APP_DIR && HOME=/home/$APP_USER npm ci --no-aud
 say "8/8 Запуск службы, HTTPS и бэкапы"
 cat > /etc/systemd/system/crm.service <<EOF
 [Unit]
-Description=CRM
+Description=ТехноСкупка
 After=network.target postgresql.service
 
 [Service]

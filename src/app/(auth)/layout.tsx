@@ -6,7 +6,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#4f6bff] to-[#7c4dff] text-xl font-bold text-[#fff]">
             М
           </div>
-          <div className="text-2xl font-semibold text-slate-900">Мастерская CRM</div>
+          <div className="text-2xl font-semibold text-slate-900">ТехноСкупка</div>
           <div className="text-sm text-slate-500">учёт ремонтов, склада и кассы</div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xl shadow-black/30">{children}</div>

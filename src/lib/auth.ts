@@ -120,7 +120,7 @@ export function newTotpSecret() {
 }
 
 export function totpUri(email: string, secret: string) {
-  return authenticator.keyuri(email, "Мастерская CRM", secret);
+  return authenticator.keyuri(email, "ТехноСкупка", secret);
 }
 
 export const ROLE_LABEL: Record<Role, string> = {
