@@ -119,3 +119,51 @@ describe("поступление как в LiveSklad", () => {
     expect(cash.category).toBe("Выкуп техники");
   });
 });
+
+import { bonusState, maskPhone, refreshBonus } from "@/lib/domain/bonus";
+import { prisma } from "@/lib/db";
+
+describe("бонусная система", () => {
+  it("сгорание по сроку: сначала тратятся баллы, которые сгорят раньше", () => {
+    const now = new Date("2026-12-01");
+    const d = (s: string) => new Date(s);
+    const st = bonusState(
+      [
+        { amount: 10000, activeFrom: d("2026-10-01"), expiresAt: d("2026-11-01"), createdAt: d("2026-10-01") },
+        { amount: 5000, activeFrom: d("2026-11-20"), expiresAt: d("2027-01-01"), createdAt: d("2026-11-20") },
+        { amount: 3000, activeFrom: d("2026-12-10"), expiresAt: null, createdAt: d("2026-11-30") },
+        { amount: -4000, activeFrom: d("2026-10-10"), expiresAt: null, createdAt: d("2026-10-10") },
+      ],
+      now,
+    );
+    expect(st.toExpire).toBe(6000);
+    expect(st.balance).toBe(8000);
+    expect(st.available).toBe(5000);
+    expect(maskPhone("+79001234567")).toBe("+7••••••••67");
+  });
+
+  it("продажа: оплата баллами, начисление, возврат отменяет начисление и возвращает баллы", async () => {
+    const a = await createCompany({ companyName: "Бонусы", ownerName: "Кирилл", email: `b-${uniq()}@test.ru`, password: "password123" });
+    await prisma.company.update({ where: { id: a.company.id }, data: { bonusEnabled: true, bonusSalePct: 500, bonusMaxPayPct: 5000 } });
+    const t = tenant(a.company.id);
+    const p = await t.db.product.create({ data: { companyId: a.company.id, name: "Чехол", price: 100000 } });
+    await receiveStock(t, { productId: p.id, locationId: a.location.id, qty: 10, cost: 20000, userId: a.owner.id });
+    const s1 = await createSale(t, { locationId: a.location.id, userId: a.owner.id, method: "CASH", client: { phone: "89005550011", name: "Аня" }, items: [{ productId: p.id, qty: 2 }] });
+    const clientId = s1.clientId!;
+    expect((await refreshBonus(t.db, a.company.id, clientId)).available).toBe(10000); // 5% от 2000 ₽
+
+    await expect(createSale(t, { locationId: a.location.id, userId: a.owner.id, method: "CASH", clientId, bonusPay: 20000, items: [{ productId: p.id, qty: 1 }] })).rejects.toThrow(/доступно только/);
+    const s2 = await createSale(t, { locationId: a.location.id, userId: a.owner.id, method: "CASH", clientId, bonusPay: 10000, items: [{ productId: p.id, qty: 1 }] });
+    expect(s2.bonusPaid).toBe(10000);
+    const cash = await t.db.cashTransaction.findFirstOrThrow({ where: { saleId: s2.id } });
+    expect(cash.amount).toBe(90000);
+    // начислено 5% от 900 ₽ = 45 баллов
+    expect((await refreshBonus(t.db, a.company.id, clientId)).balance).toBe(4500);
+
+    const it2 = await t.db.saleItem.findFirstOrThrow({ where: { saleId: s2.id } });
+    const ret = await returnSale(t, { saleId: s2.id, userId: a.owner.id, method: "CASH", items: [{ saleItemId: it2.id, qty: 1 }] });
+    expect(ret.bonusPaid).toBe(10000);
+    expect((await t.db.cashTransaction.findFirstOrThrow({ where: { saleId: ret.id } })).amount).toBe(-90000);
+    expect((await refreshBonus(t.db, a.company.id, clientId)).balance).toBe(10000);
+  });
+});

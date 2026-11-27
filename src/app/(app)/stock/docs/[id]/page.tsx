@@ -7,6 +7,7 @@ import { payStockDocAction } from "../../actions";
 import { Card, dt, Input, PageHeader, Select, Table } from "@/components/ui";
 import { rub } from "@/lib/money";
 import { DOC_LABEL, docDebt } from "@/lib/domain/stock";
+import { maskPhone } from "@/lib/domain/bonus";
 import { PrintMenu } from "@/components/order-widgets";
 import { printMenu } from "@/lib/print/templates";
 
@@ -64,7 +65,7 @@ export default async function DocPage({ params, searchParams }: { params: Promis
                 <Link href={`/clients/${d.client.id}`} className="text-blue-600">
                   {d.client.name}
                 </Link>{" "}
-                <span className="text-slate-500">{d.client.phone}</span>
+                <span className="text-slate-500">{can(ctx.user, "clientContacts") ? d.client.phone : maskPhone(d.client.phone)}</span>
               </div>
             )}
             {d.inDocNo && (

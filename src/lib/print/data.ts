@@ -198,8 +198,10 @@ export async function saleCtx(db: TenantDb, company: Company, user: Who, id: str
   const subtotal = sums.reduce((a, b) => a + b, 0);
   const disc = spread(s.discount, sums);
   const total = Math.abs(s.total);
-  const paid = Math.abs(s.transactions.reduce((a, t) => a + t.amount, 0));
+  const paid = Math.abs(s.transactions.reduce((a, t) => a + t.amount, 0)) + s.bonusPaid;
   const items = list.map((i, n) => itemVars({ ...i, sku: i.product.sku, barcode: i.product.barcode }, disc[n]));
+  const accrued = (await db.bonusTx.aggregate({ where: { saleId: s.id, kind: "ACCRUE" }, _sum: { amount: true } }))._sum.amount ?? 0;
+  const balance = s.clientId ? ((await db.bonusTx.aggregate({ where: { clientId: s.clientId }, _sum: { amount: true } }))._sum.amount ?? 0) : 0;
   const vars: Vars = {
     ...baseVars(company, s.location, s.user ?? user),
     ...clientVars(s.client),
@@ -221,6 +223,9 @@ export async function saleCtx(db: TenantDb, company: Company, user: Who, id: str
     Внесено: money(paid),
     ВнесеноПрописью: rubWords(paid),
     КДоплате: money(Math.max(0, total - paid)),
+    ОплаченоБаллами: money(s.bonusPaid),
+    НачисленоБаллов: money(accrued),
+    БалансБаллов: money(balance),
     ВсегоПозиций: String(list.length),
     ВсегоТоваров: String(list.length),
     ИтогоКол: qty(list.reduce((a, i) => a + i.qty, 0)),

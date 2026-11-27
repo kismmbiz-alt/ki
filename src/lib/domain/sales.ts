@@ -6,6 +6,7 @@ import { normalizePhone } from "./orders";
 import { defaultCashboxId, resolveCashbox, resolveWarehouse } from "./places";
 import { logAction } from "./log";
 import { PAY_LABEL } from "./cash";
+import { accrueBonus, spendBonus } from "./bonus";
 
 async function nextSaleNumber(companyId: string) {
   const { saleSeq } = await prisma.company.update({ where: { id: companyId }, data: { saleSeq: { increment: 1 } }, select: { saleSeq: true } });
@@ -25,6 +26,7 @@ export async function createSale(
     method: PayMethod;
     discount?: number; // скидка на чек, коп.
     allowBelowMin?: boolean; // владельцу можно продать ниже минимальной цены
+    bonusPay?: number; // оплата баллами, коп.
     items: { productId: string; qty: number; price?: number }[];
   },
 ) {
@@ -54,17 +56,30 @@ export async function createSale(
     const sum = rows.reduce((acc, r) => acc + r.qty * r.price, 0);
     const discount = Math.min(Math.max(0, s.discount ?? 0), sum);
     const total = sum - discount;
+    const rules = await tx.company.findUniqueOrThrow({ where: { id: companyId } });
+    const bonusPay = Math.max(0, Math.round(s.bonusPay ?? 0));
+    if (bonusPay && !clientId) throw new Error("Чтобы оплатить баллами, укажите телефон клиента");
+    if (bonusPay > total) throw new Error("Баллами нельзя оплатить больше суммы чека");
     const number = await nextSaleNumber(companyId);
     const sale = await tx.sale.create({
-      data: { companyId, locationId: s.locationId, warehouseId, number, clientId, userId: s.userId, total, discount },
+      data: { companyId, locationId: s.locationId, warehouseId, number, clientId, userId: s.userId, total, discount, bonusPaid: bonusPay },
+    });
+    if (bonusPay) await spendBonus(tx, companyId, rules, { clientId: clientId!, amount: bonusPay, checkTotal: total, saleId: sale.id, userId: s.userId, comment: `Продажа №${number}` });
+    await accrueBonus(tx, companyId, rules, {
+      clientId,
+      base: rules.bonusAccrueOnBonusPay ? total : total - bonusPay,
+      pct: rules.bonusSalePct,
+      saleId: sale.id,
+      userId: s.userId,
+      comment: `Продажа №${number}`,
     });
     for (const r of rows) {
       await tx.saleItem.create({ data: { companyId, saleId: sale.id, ...r } });
       await moveStockTx(tx, { productId: r.productId, warehouseId, qty: -r.qty, type: "SALE", userId: s.userId, comment: `Продажа №${number}` });
     }
-    if (total > 0)
+    if (total - bonusPay > 0)
       await tx.cashTransaction.create({
-        data: { companyId, locationId: s.locationId, cashboxId, userId: s.userId, saleId: sale.id, amount: total, method: s.method, category: "Продажа", comment: `Продажа №${number}` },
+        data: { companyId, locationId: s.locationId, cashboxId, userId: s.userId, saleId: sale.id, amount: total - bonusPay, method: s.method, category: "Продажа", comment: `Продажа №${number}${bonusPay ? `, баллами ${(bonusPay / 100).toLocaleString("ru-RU")} ₽` : ""}` },
       });
     await logAction(tx, {
       companyId,
@@ -111,14 +126,23 @@ export async function returnSale(
     const warehouseId = await resolveWarehouse(tx, sale.locationId, sale.warehouseId);
     const cashboxId = await resolveCashbox(tx, sale.locationId, r.cashboxId || sale.transactions[0]?.cashboxId);
     const number = await nextSaleNumber(companyId);
+    // часть, оплаченная баллами, возвращается баллами; начисленные за покупку баллы отменяются пропорционально
+    const share = sale.total > 0 ? total / sale.total : 0;
+    const bonusBack = Math.min(Math.round(sale.bonusPaid * share), total);
     const ret = await tx.sale.create({
-      data: { companyId, locationId: sale.locationId, warehouseId, number, clientId: sale.clientId, userId: r.userId, total: -total, isReturn: true, returnOfId: sale.id },
+      data: { companyId, locationId: sale.locationId, warehouseId, number, clientId: sale.clientId, userId: r.userId, total: -total, isReturn: true, returnOfId: sale.id, bonusPaid: bonusBack },
     });
+    if (sale.clientId) {
+      const accrued = (await tx.bonusTx.aggregate({ where: { saleId: sale.id, kind: "ACCRUE" }, _sum: { amount: true } }))._sum.amount ?? 0;
+      const cancel = Math.round(accrued * share);
+      if (cancel > 0) await tx.bonusTx.create({ data: { companyId, clientId: sale.clientId, kind: "RETURN", amount: -cancel, saleId: ret.id, userId: r.userId, comment: `Отмена начисления, возврат №${number}` } });
+      if (bonusBack > 0) await tx.bonusTx.create({ data: { companyId, clientId: sale.clientId, kind: "RETURN", amount: bonusBack, saleId: ret.id, userId: r.userId, comment: `Баллы вернулись, возврат №${number}` } });
+    }
     for (const x of rows) {
       await tx.saleItem.create({ data: { companyId, saleId: ret.id, ...x } });
       await moveStockTx(tx, { productId: x.productId, warehouseId, qty: x.qty, type: "RETURN", userId: r.userId, comment: `Возврат по продаже №${sale.number}` });
     }
-    if (total > 0)
+    if (total - bonusBack > 0)
       await tx.cashTransaction.create({
         data: {
           companyId,
@@ -126,7 +150,7 @@ export async function returnSale(
           cashboxId,
           userId: r.userId,
           saleId: ret.id,
-          amount: -total,
+          amount: -(total - bonusBack),
           method: r.method,
           category: "Возврат продажи",
           comment: `Возврат №${number} по продаже №${sale.number}${r.reason ? `: ${r.reason}` : ""}`,

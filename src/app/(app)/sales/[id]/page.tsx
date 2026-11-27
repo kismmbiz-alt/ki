@@ -16,6 +16,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
   const { done } = await searchParams;
   const { db, user, company } = await requirePermission("sales");
   const s = await db.sale.findUnique({ where: { id }, include: { items: true, user: true, client: true, transactions: { include: { cashbox: true } }, location: true, warehouse: true } });
+  const bonusAccrued = (await db.bonusTx.aggregate({ where: { saleId: id, kind: { in: ["ACCRUE", "RETURN"] }, amount: s?.isReturn ? { lt: 0 } : undefined }, _sum: { amount: true } }))._sum.amount ?? 0;
   if (!s) notFound();
   const canReturn = can(user, "salesReturn");
   const { cashboxes } = await placesFor({ db, companyId: company.id }, s.locationId, user);
@@ -76,6 +77,12 @@ export default async function SalePage({ params, searchParams }: { params: Promi
                   <Link href={`/clients/${s.client.id}`} className="text-blue-600 hover:underline">
                     {s.client.name}
                   </Link>
+                </div>
+              )}
+              {s.bonusPaid > 0 && <div className="text-amber-700">{s.isReturn ? "Вернулось баллами" : "Оплачено баллами"}: {rub(s.bonusPaid)}</div>}
+              {bonusAccrued !== 0 && (
+                <div className="text-amber-700">
+                  {bonusAccrued > 0 ? "Начислено баллов" : "Отменено баллов"}: {(Math.abs(bonusAccrued) / 100).toLocaleString("ru-RU")}
                 </div>
               )}
               {s.transactions.map((t) => (

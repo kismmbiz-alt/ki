@@ -7,7 +7,7 @@ import { SaleCart } from "@/components/sale-cart";
 import { currentShift } from "@/lib/domain/sales";
 import { withDescendants } from "@/lib/domain/groups";
 import { groupOptions } from "../stock/_ui/product-fields";
-import { createSaleAction, openShiftAction } from "./actions";
+import { bonusLookupAction, createSaleAction, openShiftAction } from "./actions";
 import { SalesTabs } from "./_tabs";
 import { placesFor } from "@/lib/domain/places";
 import { CashboxField } from "@/components/place-fields";
@@ -56,7 +56,7 @@ export default async function SalesPage({ searchParams }: { searchParams: Promis
       {warehouses.length > 1 && <WarehousePills warehouses={warehouses} current={wh?.id ?? null} href={(w) => `/sales?w=${w}`} />}
       <Form action={createSaleAction} resetOnOk={false}>
         <input type="hidden" name="warehouseId" value={wh?.id ?? ""} />
-        <SaleCart products={list} groups={groupOptions(groups).map((x) => ({ ...x, ids: withDescendants(groups, x.id) }))} priceOptions={opts} defaultPriceKey={opts.some((o) => o.key === ctx.company.salePriceKey) ? ctx.company.salePriceKey : "retail"}>
+        <SaleCart bonus={ctx.company.bonusEnabled ? { maxPct: ctx.company.bonusMaxPayPct } : null} lookup={bonusLookupAction} products={list} groups={groupOptions(groups).map((x) => ({ ...x, ids: withDescendants(groups, x.id) }))} priceOptions={opts} defaultPriceKey={opts.some((o) => o.key === ctx.company.salePriceKey) ? ctx.company.salePriceKey : "retail"}>
           <CashboxField cashboxes={cashboxes} defaultValue={boxId} label="В кассу" />
           <Submit className="w-full py-3 text-base">Провести продажу</Submit>
         </SaleCart>

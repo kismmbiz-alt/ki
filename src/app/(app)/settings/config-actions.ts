@@ -330,3 +330,27 @@ export const deleteSalaryEntryAction = safe(async (fd) => {
   revalidatePath("/salary");
   return "Удалено";
 });
+
+const pctBp = (fd: FormData, k: string) => Math.min(10000, Math.max(0, Math.round(Number(str(fd, k).replace(",", ".") || 0) * 100)));
+
+/** Бонусная система: условия начисления, оплаты и сгорания баллов. */
+export const saveBonusRulesAction = safe(async (fd) => {
+  const ctx = await requirePermission("settings");
+  await prisma.company.update({
+    where: { id: ctx.company.id },
+    data: {
+      bonusEnabled: str(fd, "bonusEnabled") === "1",
+      bonusSalePct: pctBp(fd, "bonusSalePct"),
+      bonusOrderPct: pctBp(fd, "bonusOrderPct"),
+      bonusMaxPayPct: pctBp(fd, "bonusMaxPayPct"),
+      bonusMinCheck: str(fd, "bonusMinCheck") ? toKop(fd.get("bonusMinCheck")) : 0,
+      bonusWelcome: str(fd, "bonusWelcome") ? toKop(fd.get("bonusWelcome")) : 0,
+      bonusDelayDays: Math.max(0, int(fd, "bonusDelayDays")),
+      bonusExpireDays: Math.max(0, int(fd, "bonusExpireDays")),
+      bonusAccrueOnBonusPay: str(fd, "bonusAccrueOnBonusPay") === "1",
+    },
+  });
+  await logAction(ctx.db, { companyId: ctx.company.id, userId: ctx.user.id, kind: "settings", text: "Изменены условия бонусной системы" });
+  revalidatePath("/settings/bonus");
+  return "Сохранено";
+});

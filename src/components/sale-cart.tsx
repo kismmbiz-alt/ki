@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { Minus, Plus, Search, Trash2 } from "lucide-react";
 import { inputCls } from "./ui";
 
@@ -16,7 +16,11 @@ export function SaleCart({
   children,
   priceOptions = [],
   defaultPriceKey = "retail",
+  bonus,
+  lookup,
 }: {
+  bonus?: { maxPct: number } | null;
+  lookup?: (phone: string) => Promise<{ name: string; available: number; visits: number } | null>;
   products: P[];
   groups: G[];
   children?: React.ReactNode;
@@ -29,6 +33,10 @@ export function SaleCart({
   const [q, setQ] = useState("");
   const [g, setG] = useState("");
   const [discount, setDiscount] = useState("");
+  const [phone, setPhone] = useState("");
+  const [bonusPay, setBonusPay] = useState("");
+  const [info, setInfo] = useState<{ name: string; available: number; visits: number } | null | "none">(null);
+  const [checking, startCheck] = useTransition();
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
   const needle = q.trim().toLowerCase();
   const list = products
@@ -47,6 +55,8 @@ export function SaleCart({
   const sum = rows.reduce((s, r) => s + r.qty * num(r.price), 0);
   const disc = Math.min(num(discount), sum);
   const total = sum - disc;
+  const bonusMax = bonus && info && info !== "none" ? Math.min(info.available / 100, Math.floor(total * bonus.maxPct) / 10000) : 0;
+  const bp = Math.min(num(bonusPay), bonusMax);
 
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_400px]">
@@ -138,8 +148,38 @@ export function SaleCart({
         <div className="border-b border-slate-100 px-4 py-3 text-xs font-semibold tracking-wide text-blue-600 uppercase">Чек</div>
         <input type="hidden" name="items" value={JSON.stringify(rows.map((r) => ({ ...r, price: r.price })))} />
         <div className="grid grid-cols-2 gap-2 p-3">
-          <input name="clientPhone" className={inputCls} placeholder="Телефон клиента" type="tel" />
-          <input name="clientName" className={inputCls} placeholder="Имя клиента" />
+          <input
+            name="clientPhone"
+            className={inputCls}
+            placeholder="Телефон клиента"
+            type="tel"
+            value={phone}
+            onChange={(e) => {
+              setPhone(e.target.value);
+              setInfo(null);
+              setBonusPay("");
+            }}
+          />
+          <input name="clientName" className={inputCls} placeholder={info && info !== "none" ? info.name : "Имя клиента"} />
+          {bonus && lookup && (
+            <div className="col-span-2 flex items-center justify-between gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm">
+              {info === null && <span className="text-slate-500">Бонусы клиента</span>}
+              {info === "none" && <span className="text-slate-500">Новый клиент, баллы начислятся после покупки</span>}
+              {info && info !== "none" && (
+                <span>
+                  <b>{info.name}</b> · доступно <b>{(info.available / 100).toLocaleString("ru-RU")}</b> баллов · визитов {info.visits}
+                </span>
+              )}
+              <button
+                type="button"
+                disabled={phone.replace(/\D/g, "").length < 10 || checking}
+                onClick={() => startCheck(async () => setInfo((await lookup(phone)) ?? "none"))}
+                className="shrink-0 rounded-md border border-amber-300 bg-white px-2 py-1 text-xs text-amber-800 disabled:opacity-40"
+              >
+                {checking ? "…" : "Проверить баллы"}
+              </button>
+            </div>
+          )}
         </div>
         <div className="flex-1 divide-y divide-slate-100 px-3">
           {rows.map((r, i) => {
@@ -185,9 +225,20 @@ export function SaleCart({
               <input name="discount" className={`${inputCls} py-1`} inputMode="decimal" value={discount} onChange={(e) => setDiscount(e.target.value)} />
             </div>
           </div>
+          {bonusMax > 0 && (
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <button type="button" onClick={() => setBonusPay(String(bonusMax))} className="whitespace-nowrap text-amber-700 hover:underline" title="Списать максимум">
+                Оплатить баллами (до {bonusMax.toLocaleString("ru-RU")})
+              </button>
+              <div className="w-28">
+                <input className={`${inputCls} py-1`} inputMode="decimal" value={bonusPay} onChange={(e) => setBonusPay(e.target.value)} />
+              </div>
+            </div>
+          )}
+          <input type="hidden" name="bonusPay" value={bp || ""} />
           <div className="flex items-center justify-between text-lg font-semibold text-slate-900">
-            <span>Итого</span>
-            <span>{fmt(total)}</span>
+            <span>{bp ? "К оплате деньгами" : "Итого"}</span>
+            <span>{fmt(total - bp)}</span>
           </div>
           <select name="method" defaultValue="CASH" className={inputCls}>
             <option value="CASH">Наличные</option>

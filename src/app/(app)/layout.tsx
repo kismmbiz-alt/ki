@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   Sun,
-  Users,
+  Gift,
   Wallet,
   Wrench,
 } from "lucide-react";
@@ -43,7 +43,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       ]),
     },
     { href: "/orders", label: "Заказы", icon: <Wrench {...I} />, show: true },
-    { href: "/clients", label: "Клиенты", icon: <Users {...I} />, show: true },
+    {
+      href: "/clients",
+      label: "Бонусы",
+      icon: <Gift {...I} />,
+      show: true,
+      children: sub([
+        { href: "/clients", label: "Клиенты", exact: true },
+        { href: "/clients/new", label: "Регистрация клиента" },
+        { href: "/settings/bonus", label: "Условия бонусов", show: has("settings") },
+      ]),
+    },
     {
       href: "/stock",
       label: "Склад",
@@ -113,6 +123,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         { href: "/settings/positions", label: "Должности и права", show: has("users") },
         { href: "/settings/statuses", label: "Статусы", show: has("settings") },
         { href: "/settings/prices", label: "Цены", show: has("settings") },
+        { href: "/settings/bonus", label: "Бонусная система", show: has("settings") },
         { href: "/settings/prints", label: "Печатные формы", show: has("settings") },
         { href: "/settings/catalog", label: "Прайс и источники", show: has("settings") },
       ]),

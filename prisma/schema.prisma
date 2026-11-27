@@ -70,47 +70,57 @@ enum StockDocType {
 }
 
 model Company {
-  id            String    @id @default(cuid())
-  name          String
-  phone         String?
-  address       String?
-  receiptTerms  String? // текст условий в квитанции
-  warrantyDays  Int       @default(30)
-  orderSeq      Int       @default(0)
-  saleSeq       Int       @default(0)
-  docSeq        Int       @default(0)
-  marketMargin  Int       @default(500000) // сколько хотим заработать на выкупе, коп.
-  bonusFixed    Int       @default(0) // бонус сотруднику за каждый выкуп, коп.
-  bonusPercent  Int       @default(0) // бонус в % от прибыли после продажи выкупленного
-  avitoRegion   String    @default("rossiya") // регион Авито для оценки: часть ссылки avito.ru/<регион>
+  id                    String    @id @default(cuid())
+  name                  String
+  phone                 String?
+  address               String?
+  receiptTerms          String? // текст условий в квитанции
+  warrantyDays          Int       @default(30)
+  orderSeq              Int       @default(0)
+  saleSeq               Int       @default(0)
+  docSeq                Int       @default(0)
+  marketMargin          Int       @default(500000) // сколько хотим заработать на выкупе, коп.
+  bonusFixed            Int       @default(0) // бонус сотруднику за каждый выкуп, коп.
+  bonusPercent          Int       @default(0) // бонус в % от прибыли после продажи выкупленного
+  avitoRegion           String    @default("rossiya") // регион Авито для оценки: часть ссылки avito.ru/<регион>
   // реквизиты (подставляются в печатные формы)
-  email         String?
-  inn           String?
-  kpp           String?
-  ogrn          String?
-  director      String? // руководитель / лицо с правом подписи
-  directorTitle String?
-  directorBasis String? // «действует на основании»
-  contract      String? // договор (номер, дата)
-  bankName      String?
-  bik           String?
-  swift         String?
-  corrAccount   String?
-  account       String?
-  companyNote   String? // доп. информация для бланков
-  currency      String    @default("RUB")
+  email                 String?
+  inn                   String?
+  kpp                   String?
+  ogrn                  String?
+  director              String? // руководитель / лицо с правом подписи
+  directorTitle         String?
+  directorBasis         String? // «действует на основании»
+  contract              String? // договор (номер, дата)
+  bankName              String?
+  bik                   String?
+  swift                 String?
+  corrAccount           String?
+  account               String?
+  companyNote           String? // доп. информация для бланков
+  currency              String    @default("RUB")
   // цены
-  salePriceKey  String    @default("retail") // какая цена ставится в продаже
-  orderPriceKey String    @default("repair") // какая цена ставится в заказе
-  hideMinPrice  Boolean   @default(false)
+  salePriceKey          String    @default("retail") // какая цена ставится в продаже
+  orderPriceKey         String    @default("repair") // какая цена ставится в заказе
+  hideMinPrice          Boolean   @default(false)
   // статусы
-  statusChains  Boolean   @default(false) // переходы только по цепочке
-  barcodeSeq    Int       @default(0)
+  statusChains          Boolean   @default(false) // переходы только по цепочке
+  barcodeSeq            Int       @default(0)
+  // бонусная система: проценты в сотых долях (300 = 3%), суммы в копейках (1 балл = 1 ₽)
+  bonusEnabled          Boolean   @default(false)
+  bonusSalePct          Int       @default(300) // начисление с продаж
+  bonusOrderPct         Int       @default(300) // начисление с выданных заказов
+  bonusMinCheck         Int       @default(0) // минимальный чек для начисления
+  bonusMaxPayPct        Int       @default(3000) // сколько процентов чека можно оплатить баллами
+  bonusDelayDays        Int       @default(0) // баллы становятся доступны через N дней
+  bonusExpireDays       Int       @default(0) // баллы сгорают через N дней, 0 — не сгорают
+  bonusWelcome          Int       @default(0) // приветственные баллы при регистрации
+  bonusAccrueOnBonusPay Boolean   @default(false) // начислять ли на часть, оплаченную баллами
   // платформа: доступ поддержки и приостановка
-  supportUntil  DateTime? // до какого времени поддержка может войти в CRM
-  supportWrite  Boolean   @default(false) // поддержке разрешено вносить изменения
-  blockedAt     DateTime? // доступ приостановлен владельцем платформы
-  createdAt     DateTime  @default(now())
+  supportUntil          DateTime? // до какого времени поддержка может войти в CRM
+  supportWrite          Boolean   @default(false) // поддержке разрешено вносить изменения
+  blockedAt             DateTime? // доступ приостановлен владельцем платформы
+  createdAt             DateTime  @default(now())
 
   locations      Location[]
   users          User[]
@@ -147,6 +157,7 @@ model Company {
   printTemplates PrintTemplate[]
   salaryRules    SalaryRule[]
   salaryEntries  SalaryEntry[]
+  bonusTxs       BonusTx[]
 }
 
 model Location {
@@ -276,6 +287,7 @@ model Client {
   adSource  AdSource?  @relation(fields: [companyId, adSourceId], references: [companyId, id])
   orders    Order[]
   stockDocs StockDoc[]
+  bonuses   BonusTx[]
   sales     Sale[]
 
   @@unique([companyId, id])
@@ -524,6 +536,7 @@ model Sale {
   discount    Int      @default(0) // скидка на чек, коп.
   isReturn    Boolean  @default(false)
   returnOfId  String? // возврат: исходная продажа
+  bonusPaid   Int      @default(0) // оплачено баллами, коп.
   createdAt   DateTime @default(now())
 
   company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -1027,4 +1040,34 @@ model PlatformEvent {
   detail  String?
 
   @@index([kind, at])
+}
+
+enum BonusKind {
+  ACCRUE // начислено за покупку или заказ
+  SPEND // оплачено баллами
+  EXPIRE // сгорели
+  WELCOME // приветственные при регистрации
+  MANUAL // вручную владельцем
+  RETURN // отмена по возврату
+}
+
+// Движение бонусных баллов клиента. Баланс — сумма amount (коп., 1 балл = 1 ₽).
+model BonusTx {
+  id         String    @id @default(cuid())
+  companyId  String
+  clientId   String
+  kind       BonusKind
+  amount     Int // + начисление, - списание
+  saleId     String?
+  orderId    String?
+  userId     String?
+  comment    String?
+  activeFrom DateTime  @default(now()) // с какого момента баллы можно тратить
+  expiresAt  DateTime? // когда сгорают
+  createdAt  DateTime  @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  client  Client  @relation(fields: [companyId, clientId], references: [companyId, id], onDelete: Cascade)
+
+  @@index([companyId, clientId, createdAt])
 }

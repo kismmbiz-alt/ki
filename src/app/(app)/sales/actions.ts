@@ -7,6 +7,8 @@ import { can, requireLocation, requirePermission } from "@/lib/auth";
 import { safe, str, opt, int } from "@/lib/action";
 import { toKop } from "@/lib/money";
 import { closeShift, createSale, openShift, returnSale } from "@/lib/domain/sales";
+import { normalizePhone } from "@/lib/domain/orders";
+import { refreshBonus } from "@/lib/domain/bonus";
 
 export const createSaleAction = safe(async (fd) => {
   const ctx = await requirePermission("sales");
@@ -23,6 +25,7 @@ export const createSaleAction = safe(async (fd) => {
       discount: toKop(fd.get("discount")),
       client: { phone: str(fd, "clientPhone"), name: str(fd, "clientName") },
       allowBelowMin: can(ctx.user, "belowMin"),
+      bonusPay: str(fd, "bonusPay") ? toKop(fd.get("bonusPay")) : 0,
       items: raw.map((r) => ({ productId: String(r.productId), qty: Math.floor(Number(r.qty)), price: toKop(r.price) })),
     },
   );
@@ -56,3 +59,15 @@ export const closeShiftAction = safe(async (fd) => {
   revalidatePath("/sales", "layout");
   return "Смена закрыта";
 });
+
+/** Баллы клиента по телефону для экрана продажи (без раскрытия контактов). */
+export async function bonusLookupAction(phone: string) {
+  const ctx = await requirePermission("sales");
+  const p = normalizePhone(phone);
+  if (p.length < 8) return null;
+  const c = await ctx.db.client.findFirst({ where: { phone: p }, select: { id: true, name: true } });
+  if (!c) return null;
+  const st = await refreshBonus(ctx.db, ctx.company.id, c.id);
+  const visits = (await ctx.db.sale.count({ where: { clientId: c.id, isReturn: false } })) + (await ctx.db.order.count({ where: { clientId: c.id } }));
+  return { name: c.name, available: st.available, visits };
+}

@@ -350,6 +350,8 @@ export async function issueOrder(
       await addPaymentTx(tx, { orderId: order.id, locationId: order.locationId, userId: input.userId, amount: t.due, method: input.method, cashboxId: input.cashboxId });
     }
     await tx.order.update({ where: { id: order.id }, data: { statusId: closed.id, statusAt: new Date(), closedAt: new Date() } });
+    const rules = await tx.company.findUniqueOrThrow({ where: { id: companyId } });
+    await accrueBonus(tx, companyId, rules, { clientId: order.clientId, base: t.total, pct: rules.bonusOrderPct, orderId: order.id, userId: input.userId, comment: `Заказ №${order.number}` });
     await logAction(tx, { companyId, userId: input.userId, locationId: order.locationId, kind: "order", text: `Заказ №${order.number} выдан клиенту`, link: `/orders/${order.id}` });
     await tx.orderEvent.create({
       data: { companyId, orderId: order.id, userId: input.userId, text: `Статус: «${order.status.name}» → «${closed.name}»` },
@@ -472,5 +474,6 @@ export function totals(items: { kind: string; qty: number; price: number; cost: 
 import { moveStockTx } from "./stock";
 import { resolveCashbox, resolveWarehouse } from "./places";
 import { logAction } from "./log";
+import { accrueBonus } from "./bonus";
 import { learnTx } from "./dict";
 import { priceOf } from "./prices";
