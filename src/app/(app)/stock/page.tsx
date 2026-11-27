@@ -123,7 +123,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
             <Card title={`Новый товар · приход на «${(wh ?? warehouses[0])?.name ?? location?.name ?? ""}»`} actions={<Link href={qs({})} className="text-sm text-slate-500">Закрыть</Link>}>
               <Form action={createProductAction} className="space-y-3">
                 <input type="hidden" name="warehouseId" value={(wh ?? warehouses[0])?.id ?? ""} />
-                <ProductFields groups={groups} suppliers={suppliers} defaultGroupId={sp.g !== "none" ? sp.g : undefined} />
+                <ProductFields groups={groups} suppliers={suppliers} defaultGroupId={sp.g !== "none" ? sp.g : undefined} showCost={false} />
                 <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-3">
                   <Input name="qty" inputMode="numeric" placeholder="Приход, шт" />
                   <Input name="cost" inputMode="decimal" placeholder="Закупка за шт, ₽" />

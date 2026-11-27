@@ -20,10 +20,21 @@ export const saveCompanyAction = safe(async (fd) => {
       address: opt(fd, "address"),
       receiptTerms: opt(fd, "receiptTerms"),
       warrantyDays: int(fd, "warrantyDays", 30),
+      email: opt(fd, "email"),
+      currency: str(fd, "currency") || "RUB",
+      companyNote: opt(fd, "companyNote"),
     },
   });
   revalidatePath("/", "layout");
   return "Сохранено";
+});
+
+export const saveRequisitesAction = safe(async (fd) => {
+  const ctx = await requirePermission("settings");
+  const keys = ["inn", "kpp", "ogrn", "director", "directorTitle", "directorBasis", "contract", "bankName", "bik", "swift", "corrAccount", "account"] as const;
+  await prisma.company.update({ where: { id: ctx.company.id }, data: Object.fromEntries(keys.map((k) => [k, opt(fd, k)])) });
+  revalidatePath("/settings");
+  return "Реквизиты сохранены";
 });
 
 export const changePasswordAction = safe(async (fd) => {

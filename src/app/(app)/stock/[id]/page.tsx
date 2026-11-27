@@ -5,6 +5,9 @@ import { Form, Submit } from "@/components/form";
 import { kopToInput, rub } from "@/lib/money";
 import { inventoryAction, receiveAction, updateProductAction } from "../actions";
 import { ProductFields } from "../_ui/product-fields";
+import { ensurePriceTypes } from "@/lib/domain/prices";
+import { barcodeSvg } from "@/lib/barcode";
+import Link from "next/link";
 
 const MOVE_LABEL: Record<string, string> = {
   RECEIPT: "Приход",
@@ -18,17 +21,20 @@ const MOVE_LABEL: Record<string, string> = {
 
 export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { db, location, user } = await requirePermission("stock");
-  const [p, groups, suppliers] = await Promise.all([
+  const { db, location, user, company } = await requirePermission("stock");
+  const [p, groups, suppliers, priceTypes, tags] = await Promise.all([
     db.product.findUnique({
       where: { id },
       include: {
         stocks: { include: { location: true, warehouse: true }, orderBy: { warehouse: { sort: "asc" } } },
         moves: { orderBy: { createdAt: "desc" }, take: 100, include: { location: true, warehouse: true, user: true } },
+        prices: true,
       },
     }),
     db.productGroup.findMany({ orderBy: { name: "asc" } }),
     db.supplier.findMany({ orderBy: { name: "asc" } }),
+    ensurePriceTypes(db, company.id),
+    db.printTemplate.findMany({ where: { docType: "price_tag" }, orderBy: [{ sort: "asc" }, { name: "asc" }], select: { id: true, name: true } }),
   ]);
   const warehouses = await db.warehouse.findMany({ where: { isActive: true, locationId: location?.id }, orderBy: [{ sort: "asc" }, { createdAt: "asc" }] });
   if (!p) notFound();
@@ -58,6 +64,35 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
             <Mini label="Розничная" value={rub(p.price)} />
             {showCost ? <Mini label="Закупочная (средняя)" value={rub(p.cost)} /> : <Mini label="Ремонтная" value={p.repairPrice != null ? rub(p.repairPrice) : "—"} />}
           </div>
+          <Card title="Цены и штрихкод">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <ul className="grid flex-1 grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
+                <li>Розничная: <b>{rub(p.price)}</b></li>
+                <li>Ремонтная: <b>{p.repairPrice != null ? rub(p.repairPrice) : "—"}</b></li>
+                <li>Минимальная: <b>{p.minPrice != null ? rub(p.minPrice) : "—"}</b></li>
+                {showCost && <li>Закупочная: <b>{rub(p.cost)}</b></li>}
+                {priceTypes.map((t) => {
+                  const v = p.prices.find((x) => x.priceTypeId === t.id)?.value;
+                  return (
+                    <li key={t.id}>
+                      {t.name}: <b>{v != null ? rub(v) : "—"}</b>
+                    </li>
+                  );
+                })}
+              </ul>
+              {p.barcode && <div className="rounded bg-white p-2" dangerouslySetInnerHTML={{ __html: barcodeSvg(p.barcode, { width: 180, height: 40 }) }} />}
+            </div>
+            {tags.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3 text-sm">
+                <span className="text-slate-500">Печать ценника:</span>
+                {tags.map((t) => (
+                  <Link key={t.id} href={`/print/t/${t.id}?ids=${p.id}`} target="_blank" className="text-blue-600 hover:underline">
+                    {t.name}
+                  </Link>
+                ))}
+              </div>
+            )}
+          </Card>
           {p.stocks.length > 1 && (
             <Card title="Остатки по складам">
               <ul className="text-sm">
@@ -89,7 +124,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
           <Card title="Карточка товара">
             <Form action={updateProductAction} className="space-y-3" resetOnOk={false}>
               <input type="hidden" name="id" value={p.id} />
-              <ProductFields p={p} groups={groups} suppliers={suppliers} />
+              <ProductFields p={p} groups={groups} suppliers={suppliers} priceTypes={priceTypes} showCost={showCost} />
               <label className="flex items-center gap-2 text-sm text-slate-700">
                 <input type="checkbox" name="isActive" value="1" defaultChecked={p.isActive} /> в продаже (снимите, чтобы убрать в архив)
               </label>

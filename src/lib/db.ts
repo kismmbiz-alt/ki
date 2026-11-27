@@ -9,6 +9,11 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
 // Модели, принадлежащие компании. Для них tenantDb всегда подставляет companyId.
 export const TENANT_MODELS = new Set<string>([
+  "PriceType",
+  "ProductPrice",
+  "PrintTemplate",
+  "SalaryRule",
+  "SalaryEntry",
   "Location",
   "User",
   "AdSource",

@@ -4,7 +4,7 @@ import { Card, Field, Input, PageHeader, Textarea } from "@/components/ui";
 import { Form, Submit } from "@/components/form";
 import { logout } from "../../(auth)/actions";
 import { SettingsTabs } from "./tabs";
-import { changePasswordAction, confirm2faAction, disable2faAction, saveCompanyAction, start2faAction } from "./actions";
+import { changePasswordAction, confirm2faAction, disable2faAction, saveCompanyAction, saveRequisitesAction, start2faAction } from "./actions";
 
 export default async function SettingsPage() {
   const { user, company } = await requireUser();
@@ -37,10 +37,74 @@ export default async function SettingsPage() {
               <Field label="Адрес">
                 <Input name="address" defaultValue={company.address ?? ""} />
               </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Email">
+                  <Input name="email" defaultValue={company.email ?? ""} />
+                </Field>
+                <Field label="Валюта">
+                  <Input name="currency" defaultValue={company.currency} />
+                </Field>
+              </div>
               <Field label="Условия в квитанции">
                 <Textarea name="receiptTerms" rows={6} defaultValue={company.receiptTerms ?? ""} />
               </Field>
+              <Field label="Доп. информация для бланков">
+                <Textarea name="companyNote" rows={2} defaultValue={company.companyNote ?? ""} />
+              </Field>
               <Submit>Сохранить</Submit>
+            </Form>
+          </Card>
+        )}
+        {admin && (
+          <Card title="Реквизиты для документов" className="lg:row-span-2">
+            <Form action={saveRequisitesAction} className="space-y-3" resetOnOk={false}>
+              <div className="grid grid-cols-3 gap-2">
+                <Field label="ИНН">
+                  <Input name="inn" defaultValue={company.inn ?? ""} />
+                </Field>
+                <Field label="КПП">
+                  <Input name="kpp" defaultValue={company.kpp ?? ""} />
+                </Field>
+                <Field label="ОГРН / ОГРНИП">
+                  <Input name="ogrn" defaultValue={company.ogrn ?? ""} />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Руководитель (ФИО)">
+                  <Input name="director" defaultValue={company.director ?? ""} />
+                </Field>
+                <Field label="Должность">
+                  <Input name="directorTitle" defaultValue={company.directorTitle ?? ""} placeholder="Индивидуальный предприниматель" />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Действует на основании">
+                  <Input name="directorBasis" defaultValue={company.directorBasis ?? ""} placeholder="Устава / свидетельства" />
+                </Field>
+                <Field label="Договор">
+                  <Input name="contract" defaultValue={company.contract ?? ""} />
+                </Field>
+              </div>
+              <Field label="Банк">
+                <Input name="bankName" defaultValue={company.bankName ?? ""} />
+              </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="БИК">
+                  <Input name="bik" defaultValue={company.bik ?? ""} />
+                </Field>
+                <Field label="SWIFT">
+                  <Input name="swift" defaultValue={company.swift ?? ""} />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Корр. счёт">
+                  <Input name="corrAccount" defaultValue={company.corrAccount ?? ""} />
+                </Field>
+                <Field label="Расчётный счёт">
+                  <Input name="account" defaultValue={company.account ?? ""} />
+                </Field>
+              </div>
+              <Submit>Сохранить реквизиты</Submit>
             </Form>
           </Card>
         )}

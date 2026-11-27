@@ -6,8 +6,17 @@ import { int, opt, safe, str } from "@/lib/action";
 import { toKop } from "@/lib/money";
 import { createStockDoc, receiveStock, setStock, type DocInput } from "@/lib/domain/stock";
 import { redirect } from "next/navigation";
+import { saveProductPrices } from "@/lib/domain/prices";
+import { nextBarcode } from "@/lib/domain/barcodes";
 
 const optKop = (fd: FormData, k: string) => (str(fd, k) ? toKop(fd.get(k)) : null);
+
+/** Свои виды цен из полей pt_<id>. */
+function customPrices(fd: FormData) {
+  const out: Record<string, number | null> = {};
+  for (const [k] of fd.entries()) if (k.startsWith("pt_")) out[k.slice(3)] = optKop(fd, k);
+  return out;
+}
 
 async function productFields(fd: FormData, db: Awaited<ReturnType<typeof requirePermission>>["db"]) {
   const groupId = opt(fd, "groupId");
@@ -20,6 +29,7 @@ async function productFields(fd: FormData, db: Awaited<ReturnType<typeof require
     price: toKop(fd.get("price")),
     repairPrice: optKop(fd, "repairPrice"),
     minPrice: optKop(fd, "minPrice"),
+    ...(str(fd, "cost") ? { cost: toKop(fd.get("cost")) } : {}),
     minQty: int(fd, "minQty"),
     groupId,
     supplierId,
@@ -31,9 +41,11 @@ export const createProductAction = safe(async (fd) => {
   const loc = requireLocation(ctx);
   const name = str(fd, "name");
   if (!name) throw new Error("Укажите название");
+  const fields = await productFields(fd, ctx.db);
   const p = await ctx.db.product.create({
-    data: { companyId: ctx.company.id, name, ...(await productFields(fd, ctx.db)) },
+    data: { companyId: ctx.company.id, name, ...fields, barcode: fields.barcode ?? (await nextBarcode(ctx.company.id)) },
   });
+  await saveProductPrices(ctx.db, ctx.company.id, p.id, customPrices(fd));
   const qty = int(fd, "qty");
   if (qty > 0) {
     await receiveStock({ db: ctx.db, companyId: ctx.company.id }, { productId: p.id, locationId: loc.id, warehouseId: opt(fd, "warehouseId"), qty, cost: toKop(fd.get("cost")), userId: ctx.user.id });
@@ -53,6 +65,7 @@ export const updateProductAction = safe(async (fd) => {
       isActive: str(fd, "isActive") === "1",
     },
   });
+  await saveProductPrices(ctx.db, ctx.company.id, id, customPrices(fd));
   revalidatePath(`/stock/${id}`);
   return "Сохранено";
 });
