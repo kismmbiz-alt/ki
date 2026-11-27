@@ -4,7 +4,7 @@ import { can, requireUser } from "@/lib/auth";
 export async function CashTabs() {
   const { user } = await requireUser();
   return (
-    <div className="mb-4 flex flex-wrap gap-1 border-b border-slate-200">
+    <div className="tabbar mb-4 flex-wrap">
       {can(user, "cash") && (
         <>
           <NavLink href="/cash" exact>

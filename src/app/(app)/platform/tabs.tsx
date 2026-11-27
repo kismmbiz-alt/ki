@@ -8,7 +8,7 @@ export function PlatformTabs() {
     { href: "/platform/support", label: "Журнал поддержки" },
   ];
   return (
-    <div className="scroll-thin mb-4 flex gap-1 overflow-x-auto border-b border-slate-200">
+    <div className="tabbar scroll-thin mb-4 overflow-x-auto">
       {tabs.map((t) => (
         <NavLink key={t.href} href={t.href} exact={t.exact}>
           {t.label}

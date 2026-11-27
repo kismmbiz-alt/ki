@@ -20,7 +20,7 @@ function Total({ label, inc, out }: { label: string; inc: number; out: number })
       <span className="text-sm font-medium text-slate-600">{label}</span>
       <div className="text-right text-sm leading-tight">
         <div className="text-emerald-600">{num(inc)}</div>
-        <div className="text-red-600">− {num(-out)}</div>
+        <div className="text-red-600">− {num(Math.abs(out))}</div>
       </div>
       <div className={`rounded-md border-l-4 px-3 py-1.5 font-semibold ${net < 0 ? "border-red-500 bg-red-50 text-red-700" : "border-emerald-500 bg-emerald-50 text-emerald-700"}`}>{num(net)}</div>
     </div>

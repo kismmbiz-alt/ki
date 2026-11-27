@@ -23,7 +23,7 @@ export async function SettingsTabs(_props: { admin?: boolean } = {}) {
       : []),
   ];
   return (
-    <div className="scroll-thin mb-4 flex gap-1 overflow-x-auto border-b border-slate-200 pb-2">
+    <div className="tabbar scroll-thin mb-4 overflow-x-auto">
       {tabs.map((t) => (
         <NavLink key={t.href} href={t.href}>
           {t.label}

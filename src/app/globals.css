@@ -14,18 +14,26 @@
 }
 
 body {
-  background: #f4f6fa;
+  --field: #ffffff;
+  --card: #ffffff;
+  --card-border: #dfe3ea;
+  --page: #eceff5;
+  background: var(--page);
   color: #0f172a;
 }
 
 .theme-dark {
   color-scheme: dark;
-  --color-white: #1f2228;
+  --field: #16181d;
+  --card: #23262d;
+  --card-border: #343943;
+  --page: #121418;
+  --color-white: #23262d;
   --color-black: #f1f3f6;
-  --color-slate-50: #181a1f;
-  --color-slate-100: #2a2e36;
-  --color-slate-200: #31353e;
-  --color-slate-300: #3d424d;
+  --color-slate-50: #1b1e23;
+  --color-slate-100: #2d3139;
+  --color-slate-200: #363b45;
+  --color-slate-300: #454b57;
   --color-slate-400: #7d8494;
   --color-slate-500: #9aa1af;
   --color-slate-600: #b5bbc6;
@@ -49,8 +57,107 @@ body {
   --color-amber-50: #3a2f17;
   --color-amber-700: #fbbf24;
   --color-orange-600: #fb923c;
-  background: var(--color-slate-50);
+  --color-red-100: #4a2328;
+  --color-green-100: #1c3a26;
+  --color-amber-100: #4a3a17;
+  --color-amber-200: #5c4718;
+  --color-amber-300: #7a5d1c;
+  --color-amber-400: #a67c1f;
+  --color-amber-600: #fbbf24;
+  --color-amber-800: #fcd34d;
+  --color-amber-900: #fde68a;
+  --color-emerald-50: #15302a;
+  --color-emerald-100: #1a3d34;
+  --color-emerald-200: #1f5444;
+  --color-emerald-500: #34d399;
+  --color-emerald-600: #34d399;
+  --color-emerald-700: #6ee7b7;
+  --color-sky-50: #152a3a;
+  --color-sky-100: #1a3650;
+  --color-sky-200: #1f4766;
+  --color-sky-400: #38bdf8;
+  --color-sky-700: #7dd3fc;
+  --color-rose-50: #3a1b26;
+  background: var(--page);
   color: var(--color-slate-900);
+}
+
+/* ---- Единые стили: карточки, кнопки, вкладки, таблицы ---- */
+.card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 1px rgb(15 23 42 / 0.03);
+}
+.theme-dark .card {
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 2px 6px rgb(0 0 0 / 0.35);
+}
+
+.btn-primary {
+  background: #4f6bff;
+  box-shadow: 0 1px 2px rgb(79 107 255 / 0.35);
+}
+.btn-primary:hover {
+  background: #3d58ea;
+}
+.btn-success {
+  background: #16a34a;
+  box-shadow: 0 1px 2px rgb(22 163 74 / 0.35);
+}
+.btn-success:hover {
+  background: #15803d;
+}
+.btn-secondary {
+  background: var(--card);
+  color: var(--color-slate-700);
+  border: 1px solid var(--color-slate-300);
+}
+.btn-secondary:hover {
+  background: var(--color-slate-100);
+  border-color: var(--color-slate-400);
+}
+.btn-danger {
+  background: var(--card);
+  color: var(--color-red-600);
+  border: 1px solid var(--color-red-200);
+}
+.btn-danger:hover {
+  background: var(--color-red-50);
+}
+
+/* Вкладки: «таблетки» в общей плашке, активная — синяя. */
+.tabbar {
+  display: inline-flex;
+  max-width: 100%;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--card-border);
+}
+.tab {
+  white-space: nowrap;
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.875rem;
+  color: var(--color-slate-600);
+  transition: background 0.15s, color 0.15s;
+}
+.tab:hover {
+  background: var(--color-slate-100);
+  color: var(--color-slate-900);
+}
+.tab-on,
+.tab-on:hover {
+  background: #4f6bff;
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(79 107 255 / 0.4);
+}
+
+/* Строки таблиц подсвечиваются при наведении. */
+.data-table tbody tr:hover {
+  background: var(--color-slate-50);
 }
 
 /* Текст на цветных кнопках всегда белый, в любой теме. */
