@@ -45,6 +45,8 @@ export type HistSale = {
   comment?: string | null;
   items: { name: string; sku?: string | null; qty: number; price: number }[];
   payments: { amount: number; method: string }[];
+  /** возврат по этому чеку (в LiveSklad он хранится внутри чека); оформляется отдельной продажей-возвратом с номером 1 000 000 + номер чека */
+  returned?: { items: { name: string; qty: number; price: number }[]; amount: number; method: string; at?: string | null } | null;
 };
 export type HistoryData = { orders?: HistOrder[]; sales?: HistSale[] };
 export type HistoryReport = {
@@ -56,9 +58,11 @@ export type HistoryReport = {
   products: number;
   orderPaid: number;
   salesPaid: number;
+  returns: number;
   errors: string[];
 };
 
+const RETURN_BASE = 1_000_000;
 const kop = (rub: number | null | undefined) => (rub == null || !Number.isFinite(rub) ? 0 : Math.round(rub * 100));
 const date = (s: string | null | undefined) => {
   if (!s) return null;
@@ -103,13 +107,13 @@ function check(data: HistoryData) {
 export async function importHistory(t: Tenant, data: HistoryData, o: { locationId: string; userId: string; dryRun: boolean }): Promise<HistoryReport> {
   check(data);
   const { db, companyId } = t;
-  const rep: HistoryReport = { orders: 0, sales: 0, skippedOrders: [], skippedSales: [], clients: 0, products: 0, orderPaid: 0, salesPaid: 0, errors: [] };
+  const rep: HistoryReport = { orders: 0, sales: 0, skippedOrders: [], skippedSales: [], clients: 0, products: 0, orderPaid: 0, salesPaid: 0, returns: 0, errors: [] };
   const users = await db.user.findMany({ select: { id: true, name: true } });
   const userId = userMatcher(users);
   const statuses = await db.orderStatus.findMany({ orderBy: { sort: "asc" } });
   const statusFor = (k: StatusKind) => statuses.find((s) => s.kind === k)?.id;
   const haveOrders = new Set((await db.order.findMany({ select: { number: true } })).map((x) => x.number));
-  const haveSales = new Set((await db.sale.findMany({ select: { number: true } })).map((x) => x.number));
+  const haveSales = new Set((await db.sale.findMany({ where: { isReturn: false }, select: { number: true } })).map((x) => x.number));
   const sources = new Map((await db.adSource.findMany()).map((s) => [s.name.toLowerCase(), s.id]));
   const clients = new Map((await db.client.findMany({ select: { id: true, phone: true } })).map((c) => [c.phone, c.id]));
 
@@ -258,9 +262,11 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
     const sub = s.items.reduce((a, i) => a + kop(i.price) * i.qty, 0);
     const discount = Math.min(kop(s.discount), sub);
     const total = sub - discount;
-    const paid = s.payments.reduce((a, p) => a + kop(p.amount), 0);
+    const refund = s.returned ? kop(s.returned.amount) : 0;
+    const paid = s.payments.reduce((a, p) => a + kop(p.amount), 0) - refund;
     rep.sales++;
     rep.salesPaid += paid;
+    if (s.returned) rep.returns++;
     if (o.dryRun) {
       for (const i of s.items) await productId(i.name, i.sku, i.price);
       if (s.client?.phone) await clientId(s.client.name, s.client.phone);
@@ -278,8 +284,10 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
         const sale = await tx.sale.create({
           data: { companyId, locationId: o.locationId, number: s.number, clientId: cid, userId: seller ?? o.userId, total, discount, createdAt },
         });
+        const costs: number[] = [];
         for (const [n, i] of s.items.entries()) {
           const line = kop(i.price) * i.qty;
+          costs[n] = sub > 0 && i.qty > 0 ? Math.round((costTotal * line) / sub / i.qty) : 0;
           await tx.saleItem.create({
             data: {
               companyId,
@@ -288,7 +296,7 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
               name: i.name.slice(0, 300),
               qty: Math.max(1, Math.round(i.qty)),
               price: kop(i.price),
-              cost: sub > 0 && i.qty > 0 ? Math.round((costTotal * line) / sub / i.qty) : 0,
+              cost: costs[n],
             },
           });
         }
@@ -309,9 +317,35 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
             },
           });
         }
+        if (s.returned && refund > 0) {
+          const retAt = date(s.returned.at) ?? createdAt;
+          const ret = await tx.sale.create({
+            data: { companyId, locationId: o.locationId, number: RETURN_BASE + s.number, clientId: cid, userId: seller ?? o.userId, total: -refund, isReturn: true, returnOfId: sale.id, createdAt: retAt },
+          });
+          for (const i of s.returned.items) {
+            const n = s.items.findIndex((x) => x.name === i.name);
+            await tx.saleItem.create({
+              data: { companyId, saleId: ret.id, productId: ids[n >= 0 ? n : 0], name: i.name.slice(0, 300), qty: Math.max(1, Math.round(i.qty)), price: kop(i.price), cost: costs[n >= 0 ? n : 0] ?? 0 },
+            });
+          }
+          await tx.cashTransaction.create({
+            data: {
+              companyId,
+              locationId: o.locationId,
+              userId: seller ?? o.userId,
+              saleId: ret.id,
+              amount: -refund,
+              method: payMethod(s.returned.method),
+              category: "Возврат продажи",
+              comment: `Возврат по продаже №${s.number} (перенос из LiveSklad)`,
+              createdAt: retAt,
+            },
+          });
+        }
       });
     } catch (e) {
       rep.sales--;
+      if (s.returned) rep.returns--;
       rep.salesPaid -= paid;
       rep.errors.push(`Продажа №${s.number}: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -320,7 +354,7 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
   if (!o.dryRun) {
     // новые номера продолжают перенесённые
     const maxOrder = Math.max(0, ...(data.orders ?? []).map((x) => x.number));
-    const maxSale = Math.max(0, ...(data.sales ?? []).map((x) => x.number));
+    const maxSale = Math.max(0, ...(data.sales ?? []).map((x) => x.number).filter((n) => n < RETURN_BASE));
     const c = await prisma.company.findUniqueOrThrow({ where: { id: companyId }, select: { orderSeq: true, saleSeq: true } });
     await prisma.company.update({ where: { id: companyId }, data: { orderSeq: Math.max(c.orderSeq, maxOrder), saleSeq: Math.max(c.saleSeq, maxSale) } });
   }

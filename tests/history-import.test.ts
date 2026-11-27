@@ -43,6 +43,17 @@ const data: HistoryData = {
       items: [{ name: "Чистка динамиков", qty: 1, price: 350 }],
       payments: [{ amount: 350, method: "картой" }],
     },
+    {
+      number: 2008,
+      createdAt: "2026-10-25T16:12:00+05:00",
+      discount: 98,
+      items: [
+        { name: "Б/У Xiaomi POCO C51", qty: 1, price: 3990 },
+        { name: "Комплект BA20A", qty: 1, price: 490 },
+      ],
+      payments: [{ amount: 4382, method: "Наличными" }],
+      returned: { items: [{ name: "Б/У Xiaomi POCO C51", qty: 1, price: 3990 }, { name: "Комплект BA20A", qty: 1, price: 392 }], amount: 4382, method: "Наличными" },
+    },
   ],
 };
 
@@ -53,11 +64,11 @@ describe("перенос истории из LiveSklad", () => {
     const o = { locationId: a.location.id, userId: a.owner.id };
 
     const dry = await importHistory(t, data, { ...o, dryRun: true });
-    expect(dry).toMatchObject({ orders: 1, sales: 1, clients: 1, products: 1, orderPaid: 350000, salesPaid: 35000 });
+    expect(dry).toMatchObject({ orders: 1, sales: 2, returns: 1, clients: 1, products: 3, orderPaid: 350000, salesPaid: 35000 });
     expect(await t.db.order.count()).toBe(0);
 
     const rep = await importHistory(t, data, { ...o, dryRun: false });
-    expect(rep).toMatchObject({ orders: 1, sales: 1, errors: [] });
+    expect(rep).toMatchObject({ orders: 1, sales: 2, returns: 1, errors: [] });
     const order = await t.db.order.findFirstOrThrow({ include: { status: true, payments: true } });
     expect(order.number).toBe(188);
     expect(order.status.kind).toBe("CLOSED");
@@ -69,14 +80,17 @@ describe("перенос истории из LiveSklad", () => {
     const tot = await orderTotals(t, order.id);
     expect(tot).toMatchObject({ total: 350000, due: 0, profit: 215200 });
 
-    const sale = await t.db.sale.findFirstOrThrow({ include: { items: true, transactions: true } });
+    const sale = await t.db.sale.findFirstOrThrow({ where: { number: 2061 }, include: { items: true, transactions: true } });
+    const ret = await t.db.sale.findFirstOrThrow({ where: { isReturn: true }, include: { transactions: true } });
+    expect(ret).toMatchObject({ number: 1002008, total: -438200 });
+    expect(ret.transactions[0]).toMatchObject({ amount: -438200, method: "CASH" });
     expect(sale).toMatchObject({ number: 2061, total: 35000 });
     expect(sale.items[0].cost).toBe(2000);
     expect(sale.transactions[0].method).toBe("CARD");
     expect(await t.db.stock.count()).toBe(0);
 
     const again = await importHistory(t, data, { ...o, dryRun: false });
-    expect(again).toMatchObject({ orders: 0, sales: 0, skippedOrders: [188], skippedSales: [2061] });
+    expect(again).toMatchObject({ orders: 0, sales: 0, skippedOrders: [188], skippedSales: [2061, 2008] });
     const c = await t.db.order.count();
     expect(c).toBe(1);
     const company = await t.db.company.findUniqueOrThrow({ where: { id: a.company.id } });
