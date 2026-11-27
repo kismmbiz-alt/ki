@@ -67,6 +67,7 @@ export default async function NewDocPage({ searchParams }: { searchParams: Promi
     );
   }
 
+  const staff = await ctx.db.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } });
   return (
     <>
       <PageHeader title={`${DOC_LABEL[type]} · ${loc.name}`} back={`/stock/${BACK[type]}`} />
@@ -113,7 +114,16 @@ export default async function NewDocPage({ searchParams }: { searchParams: Promi
                   </Select>
                 </Field>
               )}
-              <Field label={type === "WRITEOFF" ? "Причина" : "Комментарий"}>
+              <Field label="Ответственный">
+                <Select name="responsibleId" defaultValue={ctx.user.id}>
+                  {staff.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label={type === "WRITEOFF" ? "Причина" : "Примечание"}>
                 <Input name="comment" placeholder={""} />
               </Field>
               <Submit className="w-full">Провести</Submit>

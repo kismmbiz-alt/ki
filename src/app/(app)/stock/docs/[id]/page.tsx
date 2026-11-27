@@ -37,7 +37,7 @@ export default async function DocPage({ params, searchParams }: { params: Promis
         )}
       </PageHeader>
       <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
-        <Table head={["Товар", d.type === "INVENTORY" ? "Разница" : "Кол-во", "Закупка за шт", "Сумма"]} empty="Нет строк">
+        <Table head={["Товар", d.type === "INVENTORY" ? "Отклонение" : "Кол-во", "Закупка за шт", d.type === "INVENTORY" ? "Отклонение, ₽" : "Сумма"]} empty="Нет строк">
           {d.items.map((i) => (
             <tr key={i.id}>
               <td className="px-3 py-2">
@@ -48,7 +48,7 @@ export default async function DocPage({ params, searchParams }: { params: Promis
               </td>
               <td className={`px-3 py-2 font-medium ${i.qty < 0 ? "text-red-600" : ""}`}>{d.type === "INVENTORY" && i.qty > 0 ? `+${i.qty}` : i.qty}</td>
               <td className="px-3 py-2">{rub(i.cost)}</td>
-              <td className="px-3 py-2">{rub(i.cost * i.qty)}</td>
+              <td className={`px-3 py-2 ${d.type === "INVENTORY" && i.qty < 0 ? "text-red-600" : ""}`}>{rub(i.cost * i.qty)}</td>
             </tr>
           ))}
         </Table>
@@ -86,10 +86,18 @@ export default async function DocPage({ params, searchParams }: { params: Promis
                 {d.inDocDate ? ` от ${d.inDocDate.toLocaleDateString("ru-RU")}` : ""}
               </div>
             )}
-            {responsible && responsible.id !== user?.id && <div>Ответственный: {responsible.name}</div>}
+            {responsible && <div>Ответственный: {responsible.name}</div>}
             {d.comment && <div>Комментарий: {d.comment}</div>}
             <div>Провёл: {user?.name ?? "—"}</div>
-            <div className="pt-2 font-semibold">Итого по закупке: {rub(d.total)}</div>
+            {d.type === "INVENTORY" ? (
+              <>
+                <div className="pt-2">Излишки: {rub(d.items.filter((i) => i.qty > 0).reduce((a, i) => a + i.qty * i.cost, 0))}</div>
+                <div className="text-red-600">Недостача: {rub(d.items.filter((i) => i.qty < 0).reduce((a, i) => a + i.qty * i.cost, 0))}</div>
+                <div className="font-semibold">Итого отклонение: {rub(d.total)}</div>
+              </>
+            ) : (
+              <div className="pt-2 font-semibold">Итого по закупке: {rub(d.total)}</div>
+            )}
             {isReceipt && d.total > 0 && (
               <>
                 <div>Оплачено: {rub(d.paid)}</div>
