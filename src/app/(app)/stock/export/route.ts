@@ -5,7 +5,7 @@ import { toCsv } from "@/lib/csv";
 export async function GET() {
   const { db, location, user } = await requirePermission("stock");
   const products = await db.product.findMany({ where: { isActive: true }, include: { stocks: true, group: true, supplier: true }, orderBy: { name: "asc" } });
-  const showCost = can(user.role, "reports");
+  const showCost = can(user, "cost");
   const k = (v: number | null | undefined) => (v == null ? "" : v / 100);
   const rows = products.map((p) => [
     p.name,

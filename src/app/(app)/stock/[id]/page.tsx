@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { can, requirePermission } from "@/lib/auth";
-import { Card, dt, Field, Input, PageHeader, Table } from "@/components/ui";
+import { Card, dt, Field, Input, PageHeader, Select, Table } from "@/components/ui";
 import { Form, Submit } from "@/components/form";
 import { kopToInput, rub } from "@/lib/money";
 import { inventoryAction, receiveAction, updateProductAction } from "../actions";
@@ -22,14 +22,28 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   const [p, groups, suppliers] = await Promise.all([
     db.product.findUnique({
       where: { id },
-      include: { stocks: { include: { location: true } }, moves: { orderBy: { createdAt: "desc" }, take: 100, include: { location: true, user: true } } },
+      include: {
+        stocks: { include: { location: true, warehouse: true }, orderBy: { warehouse: { sort: "asc" } } },
+        moves: { orderBy: { createdAt: "desc" }, take: 100, include: { location: true, warehouse: true, user: true } },
+      },
     }),
     db.productGroup.findMany({ orderBy: { name: "asc" } }),
     db.supplier.findMany({ orderBy: { name: "asc" } }),
   ]);
+  const warehouses = await db.warehouse.findMany({ where: { isActive: true, locationId: location?.id }, orderBy: [{ sort: "asc" }, { createdAt: "asc" }] });
   if (!p) notFound();
-  const here = p.stocks.find((s) => s.locationId === location?.id)?.qty ?? 0;
-  const showCost = can(user.role, "reports");
+  const here = p.stocks.filter((s) => s.locationId === location?.id).reduce((a, s) => a + s.qty, 0);
+  const canEdit = can(user, "stockDocs");
+  const whSelect = (
+    <Select name="warehouseId" defaultValue={warehouses[0]?.id}>
+      {warehouses.map((w) => (
+        <option key={w.id} value={w.id}>
+          {w.name} (сейчас {p!.stocks.find((s) => s.warehouseId === w.id)?.qty ?? 0})
+        </option>
+      ))}
+    </Select>
+  );
+  const showCost = can(user, "cost");
 
   return (
     <>
@@ -40,28 +54,30 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
         <div className="min-w-0 space-y-4">
           <div className="grid gap-3 sm:grid-cols-4">
             <Mini label={`На «${location?.name ?? ""}»`} value={`${here} шт`} />
-            <Mini label="Всего по точкам" value={`${p.stocks.reduce((s, x) => s + x.qty, 0)} шт`} />
+            <Mini label="Всего по всем складам" value={`${p.stocks.reduce((s, x) => s + x.qty, 0)} шт`} />
             <Mini label="Розничная" value={rub(p.price)} />
             {showCost ? <Mini label="Закупочная (средняя)" value={rub(p.cost)} /> : <Mini label="Ремонтная" value={p.repairPrice != null ? rub(p.repairPrice) : "—"} />}
           </div>
           {p.stocks.length > 1 && (
-            <Card title="Остатки по точкам">
+            <Card title="Остатки по складам">
               <ul className="text-sm">
                 {p.stocks.map((s) => (
                   <li key={s.id} className="flex justify-between py-1">
-                    <span>{s.location.name}</span>
+                    <span>
+                      {s.warehouse.name} <span className="text-slate-400">· {s.location.name}</span>
+                    </span>
                     <b>{s.qty} шт</b>
                   </li>
                 ))}
               </ul>
             </Card>
           )}
-          <Table head={["Дата", "Операция", "Точка", "Кол-во", "Кто", "Комментарий"]} empty="Движений нет">
+          <Table head={["Дата", "Операция", "Склад", "Кол-во", "Кто", "Комментарий"]} empty="Движений нет">
             {p.moves.map((m) => (
               <tr key={m.id}>
                 <td className="px-3 py-2 whitespace-nowrap text-slate-500">{dt(m.createdAt)}</td>
                 <td className="px-3 py-2">{MOVE_LABEL[m.type] ?? m.type}</td>
-                <td className="px-3 py-2">{m.location.name}</td>
+                <td className="px-3 py-2">{m.warehouse.name}</td>
                 <td className={`px-3 py-2 font-medium ${m.qty < 0 ? "text-red-600" : "text-green-600"}`}>{m.qty > 0 ? `+${m.qty}` : m.qty}</td>
                 <td className="px-3 py-2 text-slate-500">{m.user?.name}</td>
                 <td className="px-3 py-2 text-slate-500">{m.comment}</td>
@@ -80,9 +96,11 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
               <Submit>Сохранить</Submit>
             </Form>
           </Card>
-          <Card title={`Быстрый приход на «${location?.name ?? ""}»`}>
+          {canEdit && (
+          <Card title="Быстрый приход">
             <Form action={receiveAction} className="space-y-2">
               <input type="hidden" name="productId" value={p.id} />
+              {whSelect}
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Кол-во">
                   <Input name="qty" required inputMode="numeric" />
@@ -95,15 +113,21 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
               <Submit variant="secondary">Оприходовать</Submit>
             </Form>
           </Card>
+          )}
+          {canEdit && (
           <Card title="Инвентаризация">
-            <Form action={inventoryAction} className="flex items-end gap-2">
+            <Form action={inventoryAction} className="space-y-2">
               <input type="hidden" name="productId" value={p.id} />
-              <Field label={`Факт на точке (по учёту ${here})`} className="flex-1">
-                <Input name="qty" required inputMode="numeric" />
-              </Field>
-              <Submit variant="secondary">Исправить</Submit>
+              {whSelect}
+              <div className="flex items-end gap-2">
+                <Field label="Фактический остаток на складе" className="flex-1">
+                  <Input name="qty" required inputMode="numeric" />
+                </Field>
+                <Submit variant="secondary">Исправить</Submit>
+              </div>
             </Form>
           </Card>
+          )}
         </div>
       </div>
     </>

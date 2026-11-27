@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import type { StatusKind } from "@prisma/client";
 import { prisma } from "../db";
+import { DEFAULT_POSITIONS } from "../perms";
 
 export const DEFAULT_STATUSES: { name: string; kind: StatusKind; color: string }[] = [
   { name: "Принят", kind: "NEW", color: "#3b82f6" },
@@ -47,6 +48,11 @@ export async function createCompany(input: NewCompanyInput) {
     });
     const location = await tx.location.create({
       data: { companyId: company.id, name: input.locationName?.trim() || "Основная точка" },
+    });
+    const cashbox = await tx.cashbox.create({ data: { companyId: company.id, locationId: location.id, name: "Основная касса" } });
+    await tx.warehouse.create({ data: { companyId: company.id, locationId: location.id, cashboxId: cashbox.id, name: "Основной склад" } });
+    await tx.position.createMany({
+      data: DEFAULT_POSITIONS.map((p, i) => ({ companyId: company.id, name: p.name, baseRole: p.baseRole, perms: p.perms, sort: i })),
     });
     const owner = await tx.user.create({
       data: {

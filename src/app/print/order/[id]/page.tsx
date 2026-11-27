@@ -27,7 +27,7 @@ export default async function PrintOrder({ params, searchParams }: { params: Pro
     include: { client: true, location: true, author: true, master: true, manager: true, items: { orderBy: { createdAt: "asc" } }, payments: true },
   });
   if (!o) notFound();
-  if (!can(user.role, "allOrders") && o.masterId !== user.id) notFound();
+  if (!can(user, "allOrders") && o.masterId !== user.id) notFound();
   const t = totals(o.items, o.payments.reduce((s, p) => s + p.amount, 0), o);
   const device = [o.deviceType, o.brand, o.model].filter(Boolean).join(" ");
   const issued = o.closedAt ?? new Date();

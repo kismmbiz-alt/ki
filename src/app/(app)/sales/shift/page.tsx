@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { defaultCashboxId, placesFor } from "@/lib/domain/places";
 import { requireLocation, requirePermission } from "@/lib/auth";
 import { Card, dt, Field, Input, PageHeader, Table } from "@/components/ui";
 import { Form, Submit } from "@/components/form";
@@ -6,16 +8,21 @@ import { cashOnHand, currentShift, shiftSummary } from "@/lib/domain/sales";
 import { closeShiftAction, openShiftAction } from "../actions";
 import { SalesTabs } from "../_tabs";
 
-export default async function ShiftPage() {
+export default async function ShiftPage({ searchParams }: { searchParams: Promise<{ c?: string }> }) {
+  const sp = await searchParams;
   const ctx = await requirePermission("sales");
   const loc = requireLocation(ctx);
   const t = { db: ctx.db, companyId: ctx.company.id };
+  const { cashboxes } = await placesFor(t, loc.id);
+  const defId = await defaultCashboxId(ctx.db, loc.id);
+  const box = cashboxes.find((c) => c.id === sp.c) ?? cashboxes.find((c) => c.id === defId) ?? cashboxes[0];
+  const place = { locationId: loc.id, cashboxId: box?.id };
   const [shift, cash, history] = await Promise.all([
-    currentShift(t, loc.id),
-    cashOnHand(t, loc.id),
-    ctx.db.cashShift.findMany({ where: { locationId: loc.id, closedAt: { not: null } }, orderBy: { openedAt: "desc" }, take: 30 }),
+    currentShift(t, place),
+    cashOnHand(t, place),
+    ctx.db.cashShift.findMany({ where: { cashboxId: box?.id, closedAt: { not: null } }, orderBy: { openedAt: "desc" }, take: 30 }),
   ]);
-  const sum = shift ? await shiftSummary(t, loc.id, shift.openedAt, new Date(Date.now() + 1000)) : null;
+  const sum = shift ? await shiftSummary(t, { cashboxId: box?.id }, shift.openedAt, new Date(Date.now() + 1000)) : null;
   const names = new Map((await ctx.db.user.findMany({ select: { id: true, name: true } })).map((u) => [u.id, u.name]));
   const rowsOf = (label: string, x: { CASH: number; CARD: number; TRANSFER: number; total: number }) => (
     <tr key={label}>
@@ -29,12 +36,23 @@ export default async function ShiftPage() {
 
   return (
     <>
-      <PageHeader title={`Смена · ${loc.name}`} />
+      <PageHeader title={`Смена · ${box?.name ?? loc.name}`} />
       <SalesTabs />
+      {cashboxes.length > 1 && (
+        <div className="mb-4 flex flex-wrap items-center gap-1 text-sm">
+          <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Касса:</span>
+          {cashboxes.map((c) => (
+            <Link key={c.id} href={`/sales/shift?c=${c.id}`} className={`rounded-md px-3 py-1.5 ${c.id === box?.id ? "bg-blue-600 on-accent" : "text-slate-600 hover:bg-slate-100"}`}>
+              {c.name}
+            </Link>
+          ))}
+        </div>
+      )}
       {!shift ? (
         <Card title="Смена закрыта">
           <p className="mb-3 text-sm text-slate-600">Наличных в кассе по учёту: {rub(cash)}</p>
           <Form action={openShiftAction} resetOnOk={false}>
+            <input type="hidden" name="cashboxId" value={box?.id ?? ""} />
             <Submit variant="success">Открыть смену</Submit>
           </Form>
         </Card>
@@ -50,6 +68,7 @@ export default async function ShiftPage() {
           </div>
           <Card title="Закрыть смену">
             <Form action={closeShiftAction} className="space-y-3" resetOnOk={false}>
+              <input type="hidden" name="cashboxId" value={box?.id ?? ""} />
               <div className="text-sm text-slate-600">
                 Наличных должно быть: <b>{rub(cash)}</b>
               </div>

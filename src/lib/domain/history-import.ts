@@ -1,5 +1,6 @@
 import type { PayMethod, StatusKind } from "@prisma/client";
 import { prisma, type Tenant } from "../db";
+import { defaultCashboxId } from "./places";
 import { normalizePhone } from "./orders";
 
 /**
@@ -115,6 +116,7 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
   const rep: HistoryReport = { orders: 0, sales: 0, skippedOrders: [], skippedSales: [], clients: 0, products: 0, orderPaid: 0, salesPaid: 0, returns: 0, cash: 0, cashSum: 0, skippedCash: 0, errors: [] };
   const users = await db.user.findMany({ select: { id: true, name: true } });
   const userId = userMatcher(users);
+  const cashboxId = await defaultCashboxId(db, o.locationId);
   const statuses = await db.orderStatus.findMany({ orderBy: { sort: "asc" } });
   const statusFor = (k: StatusKind) => statuses.find((s) => s.kind === k)?.id;
   const haveOrders = new Set((await db.order.findMany({ select: { number: true } })).map((x) => x.number));
@@ -219,6 +221,7 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
             data: {
               companyId,
               locationId: o.locationId,
+              cashboxId,
               userId: o.userId,
               orderId: order.id,
               amount,
@@ -312,6 +315,7 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
             data: {
               companyId,
               locationId: o.locationId,
+              cashboxId,
               userId: seller ?? o.userId,
               saleId: sale.id,
               amount,
@@ -337,6 +341,7 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
             data: {
               companyId,
               locationId: o.locationId,
+              cashboxId,
               userId: seller ?? o.userId,
               saleId: ret.id,
               amount: -refund,
@@ -378,7 +383,7 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
       rep.cashSum += amount;
       if (o.dryRun) continue;
       await db.cashTransaction.create({
-        data: { companyId, locationId: o.locationId, userId: o.userId, amount, method: payMethod(c.method), category, comment: c.comment?.slice(0, 500) || "Перенос из LiveSklad", createdAt: at },
+        data: { companyId, locationId: o.locationId, cashboxId, userId: o.userId, amount, method: payMethod(c.method), category, comment: c.comment?.slice(0, 500) || "Перенос из LiveSklad", createdAt: at },
       });
     }
   }

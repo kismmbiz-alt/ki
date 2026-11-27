@@ -1,3 +1,5 @@
+import { placesFor } from "@/lib/domain/places";
+import { CashboxField } from "@/components/place-fields";
 import { requireUser } from "@/lib/auth";
 import { Form, Submit } from "@/components/form";
 import { Card, Field, Input, PageHeader, PhoneLinks, Section, Select, Textarea } from "@/components/ui";
@@ -14,6 +16,7 @@ export default async function NewOrderPage({ searchParams }: { searchParams: Pro
     db.adSource.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     loadDictionaries({ db, companyId: company.id }),
   ]);
+  const { cashboxes } = await placesFor({ db, companyId: company.id }, location?.id);
   const masters = staff.filter((u) => u.role !== "MANAGER");
 
   return (
@@ -152,6 +155,7 @@ export default async function NewOrderPage({ searchParams }: { searchParams: Pro
                     </Select>
                   </Field>
                 </div>
+                <CashboxField cashboxes={cashboxes} label="Касса для предоплаты" />
               </div>
             </Card>
             <Submit className="w-full py-3 text-base">Принять заказ</Submit>

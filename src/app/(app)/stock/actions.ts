@@ -27,7 +27,7 @@ async function productFields(fd: FormData, db: Awaited<ReturnType<typeof require
 }
 
 export const createProductAction = safe(async (fd) => {
-  const ctx = await requirePermission("stock");
+  const ctx = await requirePermission("stockDocs");
   const loc = requireLocation(ctx);
   const name = str(fd, "name");
   if (!name) throw new Error("Укажите название");
@@ -36,14 +36,14 @@ export const createProductAction = safe(async (fd) => {
   });
   const qty = int(fd, "qty");
   if (qty > 0) {
-    await receiveStock({ db: ctx.db, companyId: ctx.company.id }, { productId: p.id, locationId: loc.id, qty, cost: toKop(fd.get("cost")), userId: ctx.user.id });
+    await receiveStock({ db: ctx.db, companyId: ctx.company.id }, { productId: p.id, locationId: loc.id, warehouseId: opt(fd, "warehouseId"), qty, cost: toKop(fd.get("cost")), userId: ctx.user.id });
   }
   revalidatePath("/stock");
   return `Товар «${name}» добавлен`;
 });
 
 export const updateProductAction = safe(async (fd) => {
-  const ctx = await requirePermission("stock");
+  const ctx = await requirePermission("stockDocs");
   const id = str(fd, "id");
   await ctx.db.product.update({
     where: { id },
@@ -58,12 +58,12 @@ export const updateProductAction = safe(async (fd) => {
 });
 
 export const receiveAction = safe(async (fd) => {
-  const ctx = await requirePermission("stock");
+  const ctx = await requirePermission("stockDocs");
   const loc = requireLocation(ctx);
   const id = str(fd, "productId");
   await receiveStock(
     { db: ctx.db, companyId: ctx.company.id },
-    { productId: id, locationId: loc.id, qty: int(fd, "qty"), cost: toKop(fd.get("cost")), userId: ctx.user.id, comment: opt(fd, "comment") ?? undefined },
+    { productId: id, locationId: loc.id, warehouseId: opt(fd, "warehouseId"), qty: int(fd, "qty"), cost: toKop(fd.get("cost")), userId: ctx.user.id, comment: opt(fd, "comment") ?? undefined },
   );
   revalidatePath(`/stock/${id}`);
   revalidatePath("/stock");
@@ -71,16 +71,16 @@ export const receiveAction = safe(async (fd) => {
 });
 
 export const inventoryAction = safe(async (fd) => {
-  const ctx = await requirePermission("stock");
+  const ctx = await requirePermission("stockDocs");
   const loc = requireLocation(ctx);
   const id = str(fd, "productId");
-  await setStock({ db: ctx.db, companyId: ctx.company.id }, { productId: id, locationId: loc.id, qty: int(fd, "qty"), userId: ctx.user.id });
+  await setStock({ db: ctx.db, companyId: ctx.company.id }, { productId: id, locationId: loc.id, warehouseId: opt(fd, "warehouseId"), qty: int(fd, "qty"), userId: ctx.user.id });
   revalidatePath(`/stock/${id}`);
   return "Остаток исправлен";
 });
 
 export const saveGroupAction = safe(async (fd) => {
-  const ctx = await requirePermission("stock");
+  const ctx = await requirePermission("stockDocs");
   const name = str(fd, "name");
   const id = opt(fd, "id");
   const parentId = opt(fd, "parentId");
@@ -100,7 +100,7 @@ export const saveGroupAction = safe(async (fd) => {
 });
 
 export const saveSupplierAction = safe(async (fd) => {
-  const ctx = await requirePermission("stock");
+  const ctx = await requirePermission("stockDocs");
   const id = opt(fd, "id");
   const data = { name: str(fd, "name"), phone: opt(fd, "phone"), notes: opt(fd, "notes"), isActive: id ? str(fd, "isActive") === "1" : true };
   if (!data.name) throw new Error("Укажите название поставщика");
@@ -111,7 +111,7 @@ export const saveSupplierAction = safe(async (fd) => {
 });
 
 export const stockDocAction = safe(async (fd) => {
-  const ctx = await requirePermission("stock");
+  const ctx = await requirePermission("stockDocs");
   const loc = requireLocation(ctx);
   const raw = JSON.parse(str(fd, "items") || "[]") as { productId: string; qty: string | number; cost?: string }[];
   const doc = await createStockDoc(
@@ -119,7 +119,8 @@ export const stockDocAction = safe(async (fd) => {
     {
       type: str(fd, "type") as DocInput["type"],
       locationId: loc.id,
-      toLocationId: opt(fd, "toLocationId"),
+      warehouseId: opt(fd, "warehouseId"),
+      toWarehouseId: opt(fd, "toWarehouseId"),
       supplierId: opt(fd, "supplierId"),
       userId: ctx.user.id,
       comment: opt(fd, "comment"),
@@ -130,6 +131,6 @@ export const stockDocAction = safe(async (fd) => {
       })),
     },
   );
-  revalidatePath("/stock");
+  revalidatePath("/stock", "layout");
   redirect(`/stock/docs/${doc.id}`);
 });

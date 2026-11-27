@@ -28,12 +28,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     { href: "/dashboard", label: "Главная", icon: <House {...I} />, show: true },
     { href: "/orders", label: "Заказы", icon: <Wrench {...I} />, show: true },
     { href: "/clients", label: "Клиенты", icon: <Users {...I} />, show: true },
-    { href: "/buyback", label: "Скупка", icon: <HandCoins {...I} />, show: true },
-    { href: "/sales", label: "Продажи", icon: <ShoppingCart {...I} />, show: can(role, "sales") },
-    { href: "/stock", label: "Склад", icon: <Package {...I} />, show: can(role, "stock") },
-    { href: "/cash", label: "Финансы", icon: <Wallet {...I} />, show: can(role, "cash") },
-    { href: "/reports", label: "Аналитика", icon: <ChartColumn {...I} />, show: can(role, "reports") },
-    { href: "/settings/dicts", label: "Справочники", icon: <BookOpen {...I} />, show: can(role, "settings") },
+    { href: "/buyback", label: "Скупка", icon: <HandCoins {...I} />, show: can(user, "buyback") },
+    { href: "/sales", label: "Продажи", icon: <ShoppingCart {...I} />, show: can(user, "sales") },
+    { href: "/stock", label: "Склад", icon: <Package {...I} />, show: can(user, "stock") },
+    { href: can(user, "cash") ? "/cash" : "/cash/journal", label: "Финансы", icon: <Wallet {...I} />, show: can(user, "cash") || can(user, "journal") },
+    { href: "/reports", label: "Аналитика", icon: <ChartColumn {...I} />, show: can(user, "reports") },
+    { href: "/settings/dicts", label: "Справочники", icon: <BookOpen {...I} />, show: can(user, "settings") },
     { href: "/settings", label: "Настройки", icon: <Settings {...I} />, show: true },
   ].filter((n) => n.show);
 
@@ -86,7 +86,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             </div>
             <div className="min-w-0">
               <div className="truncate text-sm text-[#e4e7ec]">{user.name}</div>
-              <div className="text-xs text-[#7d8494]">{ROLE_LABEL[role]}</div>
+              <div className="text-xs text-[#7d8494]">{role === "OWNER" ? "Владелец" : (user.position?.name ?? ROLE_LABEL[role])}</div>
             </div>
           </div>
           <div className="flex gap-1">

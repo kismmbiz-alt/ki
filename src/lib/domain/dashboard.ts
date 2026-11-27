@@ -2,24 +2,55 @@ import type { Prisma, StatusKind } from "@prisma/client";
 import type { Tenant } from "../db";
 import { totals } from "./orders";
 
-export type Period = "week" | "month" | "year";
+export type Period = "day" | "week" | "month" | "quarter" | "year" | "custom";
 
 const DAY = 864e5;
 export const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 
-export function periodRange(p: Period, now = new Date()) {
-  const today = startOfDay(now);
+export type Range = { from: Date; to: Date; prevFrom: Date; prevTo: Date; bucket: "hour" | "day" | "month" };
+
+/**
+ * Границы периода вокруг даты anchor: день, неделя (с понедельника), месяц, квартал, год.
+ * Для «custom» — с from по to включительно. prev — такой же период перед ним.
+ */
+export function periodRange(p: Period, anchor = new Date(), custom?: { from: Date; to: Date }): Range {
+  const a = startOfDay(anchor);
+  if (p === "day") return { from: a, to: addDays(a, 1), prevFrom: addDays(a, -1), prevTo: a, bucket: "hour" };
   if (p === "week") {
-    const dow = (today.getDay() + 6) % 7; // пн = 0
-    const from = new Date(today.getTime() - dow * DAY);
-    return { from, to: new Date(from.getTime() + 7 * DAY), prevFrom: new Date(from.getTime() - 7 * DAY) };
+    const from = addDays(a, -((a.getDay() + 6) % 7));
+    return { from, to: addDays(from, 7), prevFrom: addDays(from, -7), prevTo: from, bucket: "day" };
   }
   if (p === "month") {
-    const from = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { from, to: new Date(today.getFullYear(), today.getMonth() + 1, 1), prevFrom: new Date(today.getFullYear(), today.getMonth() - 1, 1) };
+    const from = new Date(a.getFullYear(), a.getMonth(), 1);
+    return { from, to: new Date(a.getFullYear(), a.getMonth() + 1, 1), prevFrom: new Date(a.getFullYear(), a.getMonth() - 1, 1), prevTo: from, bucket: "day" };
   }
-  const from = new Date(today.getFullYear(), 0, 1);
-  return { from, to: new Date(today.getFullYear() + 1, 0, 1), prevFrom: new Date(today.getFullYear() - 1, 0, 1) };
+  if (p === "quarter") {
+    const q = Math.floor(a.getMonth() / 3) * 3;
+    const from = new Date(a.getFullYear(), q, 1);
+    return { from, to: new Date(a.getFullYear(), q + 3, 1), prevFrom: new Date(a.getFullYear(), q - 3, 1), prevTo: from, bucket: "day" };
+  }
+  if (p === "custom" && custom) {
+    const from = startOfDay(custom.from);
+    const to = addDays(startOfDay(custom.to), 1);
+    const days = Math.max(1, Math.round((+to - +from) / DAY));
+    return { from, to, prevFrom: addDays(from, -days), prevTo: from, bucket: days <= 1 ? "hour" : days <= 92 ? "day" : "month" };
+  }
+  const from = new Date(a.getFullYear(), 0, 1);
+  return { from, to: new Date(a.getFullYear() + 1, 0, 1), prevFrom: new Date(a.getFullYear() - 1, 0, 1), prevTo: from, bucket: "month" };
+}
+
+/** План на период: месячный план, пропорционально дням периода в каждом месяце. */
+export function planFor(monthly: number, from: Date, to: Date) {
+  if (!monthly) return 0;
+  let sum = 0;
+  for (let d = new Date(from.getFullYear(), from.getMonth(), 1); d < to; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+    const mEnd = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    const s = Math.max(+d, +from);
+    const e = Math.min(+mEnd, +to);
+    if (e > s) sum += (monthly * Math.round((e - s) / DAY)) / Math.round((+mEnd - +d) / DAY);
+  }
+  return Math.round(sum);
 }
 
 export const FUNNEL: { key: string; label: string; kinds: StatusKind[]; color: string }[] = [
@@ -35,14 +66,14 @@ const orderSum = (o: { items: { kind: string; qty: number; price: number; cost: 
 
 export async function dashboard(
   { db }: Tenant,
-  opts: { locationId?: string; userId?: string; mine?: boolean; period: Period },
+  opts: { locationId?: string; userId?: string; mine?: boolean; range: Range },
 ) {
   const now = new Date();
   const today = startOfDay(now);
   const base: Prisma.OrderWhereInput = {};
   if (opts.locationId) base.locationId = opts.locationId;
   if (opts.mine && opts.userId) base.OR = [{ masterId: opts.userId }, { managerId: opts.userId }];
-  const r = periodRange(opts.period, now);
+  const r = opts.range;
   const saleLoc = opts.locationId ? { locationId: opts.locationId } : {};
   const saleMine = opts.mine && opts.userId ? { userId: opts.userId } : {};
 
@@ -60,10 +91,10 @@ export async function dashboard(
     db.order.count({ where: { ...base, createdAt: { gte: today } } }),
     db.sale.findMany({ where: { ...saleLoc, ...saleMine, createdAt: { gte: r.from, lt: r.to } }, select: { total: true, createdAt: true } }),
     db.order.findMany({
-      where: { ...base, status: { kind: "CLOSED" }, closedAt: { gte: r.prevFrom, lt: r.from } },
+      where: { ...base, status: { kind: "CLOSED" }, closedAt: { gte: r.prevFrom, lt: r.prevTo } },
       select: { closedAt: true, discountPct: true, discountSum: true, items: itemSel },
     }),
-    db.sale.findMany({ where: { ...saleLoc, ...saleMine, createdAt: { gte: r.prevFrom, lt: r.from } }, select: { total: true, createdAt: true } }),
+    db.sale.findMany({ where: { ...saleLoc, ...saleMine, createdAt: { gte: r.prevFrom, lt: r.prevTo } }, select: { total: true, createdAt: true } }),
   ]);
 
   const funnel = FUNNEL.map((f) => {
@@ -72,11 +103,16 @@ export async function dashboard(
     return { ...f, count: list.length, sum: list.reduce((s, o) => s + orderSum(o), 0) };
   });
 
-  const overdue = open
-    .filter((o) => o.dueDate && o.dueDate < now && o.status.kind !== "READY")
-    .sort((a, b) => +a.dueDate! - +b.dueDate!)
-    .slice(0, 8);
-  const urgent = open.filter((o) => o.urgent && o.status.kind !== "READY").slice(0, 8);
+  const inWork = open.filter((o) => o.status.kind !== "READY");
+  const byDue = (a: { dueDate: Date | null }, b: { dueDate: Date | null }) => +a.dueDate! - +b.dueDate!;
+  const tmr = new Date(today.getTime() + DAY);
+  const after = new Date(today.getTime() + 2 * DAY);
+  const overdue = inWork.filter((o) => o.dueDate && o.dueDate < now).sort(byDue);
+  const dueToday = inWork.filter((o) => o.dueDate && o.dueDate >= now && o.dueDate < tmr).sort(byDue);
+  const dueTomorrow = inWork.filter((o) => o.dueDate && o.dueDate >= tmr && o.dueDate < after).sort(byDue);
+  const noDue = inWork.filter((o) => !o.dueDate).length;
+  const urgent = inWork.filter((o) => o.urgent).slice(0, 8);
+  const readyWaiting = open.filter((o) => o.status.kind === "READY").length;
 
   // Сравнение «сегодня» с тем же днём прошлой недели и «период» с прошлым периодом
   const sumIn = (list: { closedAt: Date | null; items: { kind: string; qty: number; price: number; cost: number }[]; discountPct: number; discountSum: number }[], from: Date, to: Date) =>
@@ -98,18 +134,19 @@ export async function dashboard(
   });
   const todaySales = await db.sale.findMany({ where: { ...saleLoc, ...saleMine, createdAt: { gte: today, lt: tomorrow } }, select: { total: true, createdAt: true } });
 
-  // Столбики графика: по дням (неделя, месяц) или по месяцам (год)
+  // Столбики графика: по часам (день), по дням (неделя, месяц, квартал) или по месяцам (год)
   const buckets: { label: string; from: Date; to: Date }[] = [];
-  if (opts.period === "year") {
-    for (let m = 0; m < 12; m++) {
-      const from = new Date(r.from.getFullYear(), m, 1);
-      buckets.push({ label: from.toLocaleDateString("ru-RU", { month: "short" }).replace(".", ""), from, to: new Date(r.from.getFullYear(), m + 1, 1) });
+  if (r.bucket === "month") {
+    for (let d = new Date(r.from.getFullYear(), r.from.getMonth(), 1); d < r.to; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+      buckets.push({ label: d.toLocaleDateString("ru-RU", { month: "short" }).replace(".", ""), from: d, to: new Date(d.getFullYear(), d.getMonth() + 1, 1) });
+    }
+  } else if (r.bucket === "hour") {
+    for (let h = 8; h < 22; h++) {
+      const from = new Date(r.from.getFullYear(), r.from.getMonth(), r.from.getDate(), h === 8 ? 0 : h);
+      buckets.push({ label: String(h), from, to: new Date(r.from.getFullYear(), r.from.getMonth(), r.from.getDate(), h === 21 ? 24 : h + 1) });
     }
   } else {
-    for (let d = r.from; d < r.to; d = new Date(d.getTime() + DAY)) {
-      const from = startOfDay(d);
-      buckets.push({ label: String(from.getDate()), from, to: new Date(from.getTime() + DAY) });
-    }
+    for (let d = r.from; d < r.to; d = addDays(d, 1)) buckets.push({ label: String(d.getDate()), from: d, to: addDays(d, 1) });
   }
   const chart = buckets.map((b) => ({ label: b.label, orders: sumIn(closedPeriod, b.from, b.to), sales: salesIn(sales, b.from, b.to), future: b.from > now }));
 
@@ -118,6 +155,10 @@ export async function dashboard(
     todayCount,
     notIssued: open.length,
     overdue,
+    dueToday,
+    dueTomorrow,
+    noDue,
+    readyWaiting,
     urgent,
     today: {
       orders: sumIn(todayOrders, today, tomorrow),
@@ -128,8 +169,9 @@ export async function dashboard(
     period: {
       orders: sumIn(closedPeriod, r.from, r.to),
       sales: salesIn(sales, r.from, r.to),
-      ordersPrev: sumIn(prevClosed, r.prevFrom, r.from),
-      salesPrev: salesIn(prevSales, r.prevFrom, r.from),
+      ordersPrev: sumIn(prevClosed, r.prevFrom, r.prevTo),
+      salesPrev: salesIn(prevSales, r.prevFrom, r.prevTo),
+      closedCount: closedPeriod.length,
     },
     chart,
   };

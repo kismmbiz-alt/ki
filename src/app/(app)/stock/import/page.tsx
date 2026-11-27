@@ -21,10 +21,10 @@ export default async function ImportPage() {
           title="Товары и остатки"
           hint={`Колонки: наименование, код, штрихкод, группа, поставщик, количество, закупочная, розничная, ремонтная, минимальная цена. Остатки встанут на точку «${location?.name ?? ""}» ровно как в файле.`}
         />
-        {can(user.role, "settings") && (
+        {can(user, "settings") && (
           <ImportForm kind="clients" title="Клиенты" hint="Колонки: ФИО или имя, телефон, почта, адрес, рекламный источник, комментарий. Строки без телефона пропускаются." />
         )}
-        {can(user.role, "settings") && <HistoryForm />}
+        {can(user, "settings") && <HistoryForm />}
       </div>
     </>
   );

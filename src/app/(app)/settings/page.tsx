@@ -8,7 +8,7 @@ import { changePasswordAction, confirm2faAction, disable2faAction, saveCompanyAc
 
 export default async function SettingsPage() {
   const { user, company } = await requireUser();
-  const admin = can(user.role, "settings");
+  const admin = can(user, "settings");
   const qr = user.totpSecret && !user.totpEnabled ? await QRCode.toDataURL(totpUri(user.email, user.totpSecret)) : null;
 
   return (

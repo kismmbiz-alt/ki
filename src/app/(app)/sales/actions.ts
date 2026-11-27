@@ -16,11 +16,13 @@ export const createSaleAction = safe(async (fd) => {
     { db: ctx.db, companyId: ctx.company.id },
     {
       locationId: loc.id,
+      warehouseId: opt(fd, "warehouseId"),
+      cashboxId: opt(fd, "cashboxId"),
       userId: ctx.user.id,
       method: (str(fd, "method") || "CASH") as PayMethod,
       discount: toKop(fd.get("discount")),
       client: { phone: str(fd, "clientPhone"), name: str(fd, "clientName") },
-      allowBelowMin: can(ctx.user.role, "settings"),
+      allowBelowMin: can(ctx.user, "belowMin"),
       items: raw.map((r) => ({ productId: String(r.productId), qty: Math.floor(Number(r.qty)), price: toKop(r.price) })),
     },
   );
@@ -28,20 +30,20 @@ export const createSaleAction = safe(async (fd) => {
 });
 
 export const returnSaleAction = safe(async (fd) => {
-  const ctx = await requirePermission("sales");
+  const ctx = await requirePermission("salesReturn");
   const saleId = str(fd, "saleId");
   const items = [...fd.keys()].filter((k) => k.startsWith("ret_")).map((k) => ({ saleItemId: k.slice(4), qty: int(fd, k, 0) }));
   const ret = await returnSale(
     { db: ctx.db, companyId: ctx.company.id },
-    { saleId, userId: ctx.user.id, method: (str(fd, "method") || "CASH") as PayMethod, items, reason: opt(fd, "reason") ?? undefined },
+    { saleId, userId: ctx.user.id, method: (str(fd, "method") || "CASH") as PayMethod, cashboxId: opt(fd, "cashboxId"), items, reason: opt(fd, "reason") ?? undefined },
   );
   redirect(`/sales/${ret.id}`);
 });
 
-export const openShiftAction = safe(async () => {
+export const openShiftAction = safe(async (fd) => {
   const ctx = await requirePermission("sales");
   const loc = requireLocation(ctx);
-  await openShift({ db: ctx.db, companyId: ctx.company.id }, { locationId: loc.id, userId: ctx.user.id });
+  await openShift({ db: ctx.db, companyId: ctx.company.id }, { locationId: loc.id, cashboxId: opt(fd, "cashboxId"), userId: ctx.user.id });
   revalidatePath("/sales", "layout");
   return "Смена открыта";
 });
@@ -50,7 +52,7 @@ export const closeShiftAction = safe(async (fd) => {
   const ctx = await requirePermission("sales");
   const loc = requireLocation(ctx);
   if (!str(fd, "closeCash")) throw new Error("Пересчитайте наличные в кассе и впишите сумму");
-  await closeShift({ db: ctx.db, companyId: ctx.company.id }, { locationId: loc.id, userId: ctx.user.id, closeCash: toKop(fd.get("closeCash")), comment: opt(fd, "comment") });
+  await closeShift({ db: ctx.db, companyId: ctx.company.id }, { locationId: loc.id, cashboxId: opt(fd, "cashboxId"), userId: ctx.user.id, closeCash: toKop(fd.get("closeCash")), comment: opt(fd, "comment") });
   revalidatePath("/sales", "layout");
   return "Смена закрыта";
 });

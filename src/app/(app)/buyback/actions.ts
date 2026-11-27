@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { ListingSourceKind, PayMethod } from "@prisma/client";
-import { can, requireLocation, requirePermission, requireUser, type Ctx } from "@/lib/auth";
+import { can, requireLocation, requirePermission, type Ctx } from "@/lib/auth";
 import { opt, safe, str } from "@/lib/action";
 import { toKop } from "@/lib/money";
 import { addManualListing, buyListing, rejectListing, releaseListing, SUPPORTED_KINDS, takeListing } from "@/lib/domain/buyback";
@@ -12,7 +12,7 @@ import { parseVkUrl } from "@/lib/collectors/vk";
 import { parseTelegramUrl } from "@/lib/collectors/telegram";
 
 const t = (ctx: Ctx) => ({ db: ctx.db, companyId: ctx.company.id });
-const actor = (ctx: Ctx) => ({ userId: ctx.user.id, isAdmin: can(ctx.user.role, "buybackSources") });
+const actor = (ctx: Ctx) => ({ userId: ctx.user.id, isAdmin: can(ctx.user, "buybackSources") });
 const refresh = (id?: string) => {
   revalidatePath("/buyback");
   revalidatePath("/buyback/rating");
@@ -20,7 +20,7 @@ const refresh = (id?: string) => {
 };
 
 export const takeAction = safe(async (fd) => {
-  const ctx = await requireUser();
+  const ctx = await requirePermission("buyback");
   const id = str(fd, "id");
   await takeListing(t(ctx), id, ctx.user.id);
   refresh(id);
@@ -28,7 +28,7 @@ export const takeAction = safe(async (fd) => {
 });
 
 export const releaseAction = safe(async (fd) => {
-  const ctx = await requireUser();
+  const ctx = await requirePermission("buyback");
   const id = str(fd, "id");
   await releaseListing(t(ctx), id, actor(ctx));
   refresh(id);
@@ -36,7 +36,7 @@ export const releaseAction = safe(async (fd) => {
 });
 
 export const rejectAction = safe(async (fd) => {
-  const ctx = await requireUser();
+  const ctx = await requirePermission("buyback");
   const id = str(fd, "id");
   await rejectListing(t(ctx), id, actor(ctx), str(fd, "reason"));
   refresh(id);
@@ -44,7 +44,7 @@ export const rejectAction = safe(async (fd) => {
 });
 
 export const buyAction = safe(async (fd) => {
-  const ctx = await requireUser();
+  const ctx = await requirePermission("buyback");
   const loc = requireLocation(ctx);
   const id = str(fd, "id");
   const sale = str(fd, "salePrice");
@@ -52,6 +52,8 @@ export const buyAction = safe(async (fd) => {
     id,
     actor: actor(ctx),
     locationId: loc.id,
+    warehouseId: opt(fd, "warehouseId"),
+    cashboxId: opt(fd, "cashboxId"),
     buyPrice: toKop(fd.get("buyPrice")),
     productName: str(fd, "productName"),
     salePrice: sale ? toKop(sale) : undefined,
@@ -63,7 +65,7 @@ export const buyAction = safe(async (fd) => {
 });
 
 export const addManualAction = safe(async (fd) => {
-  const ctx = await requireUser();
+  const ctx = await requirePermission("buyback");
   const price = str(fd, "price");
   const l = await addManualListing(t(ctx), {
     url: str(fd, "url"),

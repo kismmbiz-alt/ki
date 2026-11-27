@@ -33,6 +33,10 @@ export const TENANT_MODELS = new Set<string>([
   "CashShift",
   "ListingSource",
   "Listing",
+  "Position",
+  "Cashbox",
+  "Warehouse",
+  "ActionLog",
 ]);
 
 const WHERE_OPS = new Set([

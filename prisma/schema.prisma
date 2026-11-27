@@ -66,6 +66,7 @@ enum StockDocType {
   TRANSFER // перемещение между точками
   WRITEOFF // списание
   INVENTORY // инвентаризация
+  SUPPLIER_RETURN // возврат поставщику
 }
 
 model Company {
@@ -104,18 +105,25 @@ model Company {
   stockDocItems  StockDocItem[]
   cashShifts     CashShift[]
   listings       Listing[]
+  positions      Position[]
+  warehouses     Warehouse[]
+  cashboxes      Cashbox[]
+  actionLogs     ActionLog[]
 }
 
 model Location {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String
-  address   String?
-  phone     String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  companyId   String
+  name        String
+  address     String?
+  phone       String?
+  isActive    Boolean  @default(true)
+  planRevenue Int      @default(0) // план выручки на месяц, коп.
+  createdAt   DateTime @default(now())
 
   company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouses   Warehouse[]
+  cashboxes    Cashbox[]
   users        User[]
   orders       Order[]
   stocks       Stock[]
@@ -139,6 +147,7 @@ model User {
   phone         String?
   passwordHash  String
   role          Role     @default(MASTER)
+  positionId    String? // должность с набором прав
   salaryPercent Int      @default(0) // процент мастера от стоимости работ
   totpSecret    String?
   totpEnabled   Boolean  @default(false)
@@ -147,6 +156,7 @@ model User {
 
   company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   location        Location?         @relation(fields: [companyId, locationId], references: [companyId, id])
+  position        Position?         @relation(fields: [companyId, positionId], references: [companyId, id])
   sessions        Session[]
   ordersAsMaster  Order[]           @relation("OrderMaster")
   ordersAsAuthor  Order[]           @relation("OrderAuthor")
@@ -156,6 +166,7 @@ model User {
   stockMoves      StockMove[]
   sales           Sale[]
   listingsTaken   Listing[]         @relation("ListingAssignee")
+  actionLogs      ActionLog[]
 
   @@unique([companyId, id])
   @@index([companyId])
@@ -283,12 +294,14 @@ model OrderItem {
   price        Int // цена для клиента за единицу, коп.
   cost         Int      @default(0) // себестоимость за единицу, коп.
   warrantyDays Int? // гарантия на позицию, дней
+  warehouseId  String? // со склада списана запчасть
   createdAt    DateTime @default(now())
 
-  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  order   Order    @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Cascade)
-  product Product? @relation(fields: [companyId, productId], references: [companyId, id])
-  service Service? @relation(fields: [companyId, serviceId], references: [companyId, id])
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouse Warehouse? @relation(fields: [companyId, warehouseId], references: [companyId, id])
+  order     Order      @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Cascade)
+  product   Product?   @relation(fields: [companyId, productId], references: [companyId, id])
+  service   Service?   @relation(fields: [companyId, serviceId], references: [companyId, id])
 
   @@index([companyId, orderId])
 }
@@ -353,43 +366,51 @@ model Product {
 }
 
 model Stock {
-  id         String @id @default(cuid())
-  companyId  String
-  productId  String
-  locationId String
-  qty        Int    @default(0)
+  id          String @id @default(cuid())
+  companyId   String
+  productId   String
+  locationId  String // точка склада (для отчётов по точке)
+  warehouseId String
+  qty         Int    @default(0)
 
-  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product  Product  @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Cascade)
-  location Location @relation(fields: [companyId, locationId], references: [companyId, id])
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Cascade)
+  location  Location  @relation(fields: [companyId, locationId], references: [companyId, id])
+  warehouse Warehouse @relation(fields: [companyId, warehouseId], references: [companyId, id])
 
-  @@unique([companyId, productId, locationId])
+  @@unique([companyId, productId, warehouseId])
+  @@index([companyId, locationId])
 }
 
 model StockMove {
-  id         String        @id @default(cuid())
-  companyId  String
-  productId  String
-  locationId String
-  userId     String?
-  type       StockMoveType
-  qty        Int // + приход, - расход
-  cost       Int           @default(0) // закупочная цена единицы при приходе
-  comment    String?
-  createdAt  DateTime      @default(now())
+  id          String        @id @default(cuid())
+  companyId   String
+  productId   String
+  locationId  String
+  warehouseId String
+  userId      String?
+  type        StockMoveType
+  qty         Int // + приход, - расход
+  cost        Int           @default(0) // закупочная цена единицы при приходе
+  comment     String?
+  createdAt   DateTime      @default(now())
 
-  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product  Product  @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Cascade)
-  location Location @relation(fields: [companyId, locationId], references: [companyId, id])
-  user     User?    @relation(fields: [companyId, userId], references: [companyId, id])
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Cascade)
+  location  Location  @relation(fields: [companyId, locationId], references: [companyId, id])
+  warehouse Warehouse @relation(fields: [companyId, warehouseId], references: [companyId, id])
+  user      User?     @relation(fields: [companyId, userId], references: [companyId, id])
 
   @@index([companyId, productId])
+  @@index([companyId, warehouseId, createdAt])
 }
 
 model CashTransaction {
   id         String    @id @default(cuid())
   companyId  String
   locationId String
+  cashboxId  String
+  transferId String? // общий id у двух половин перевода между кассами
   userId     String?
   orderId    String?
   saleId     String?
@@ -401,28 +422,32 @@ model CashTransaction {
 
   company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   location Location @relation(fields: [companyId, locationId], references: [companyId, id])
+  cashbox  Cashbox  @relation(fields: [companyId, cashboxId], references: [companyId, id])
   user     User?    @relation(fields: [companyId, userId], references: [companyId, id])
   order    Order?   @relation(fields: [companyId, orderId], references: [companyId, id])
   sale     Sale?    @relation(fields: [companyId, saleId], references: [companyId, id])
 
   @@index([companyId, locationId, createdAt])
+  @@index([companyId, cashboxId, createdAt])
 }
 
 model Sale {
-  id         String   @id @default(cuid())
-  companyId  String
-  locationId String
-  number     Int
-  clientId   String?
-  userId     String?
-  total      Int // у возврата сумма отрицательная
-  discount   Int      @default(0) // скидка на чек, коп.
-  isReturn   Boolean  @default(false)
-  returnOfId String? // возврат: исходная продажа
-  createdAt  DateTime @default(now())
+  id          String   @id @default(cuid())
+  companyId   String
+  locationId  String
+  warehouseId String? // со склада продан товар
+  number      Int
+  clientId    String?
+  userId      String?
+  total       Int // у возврата сумма отрицательная
+  discount    Int      @default(0) // скидка на чек, коп.
+  isReturn    Boolean  @default(false)
+  returnOfId  String? // возврат: исходная продажа
+  createdAt   DateTime @default(now())
 
   company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   location     Location          @relation(fields: [companyId, locationId], references: [companyId, id])
+  warehouse    Warehouse?        @relation(fields: [companyId, warehouseId], references: [companyId, id])
   client       Client?           @relation(fields: [companyId, clientId], references: [companyId, id])
   user         User?             @relation(fields: [companyId, userId], references: [companyId, id])
   items        SaleItem[]
@@ -586,23 +611,27 @@ model Supplier {
 }
 
 model StockDoc {
-  id           String       @id @default(cuid())
-  companyId    String
-  number       Int
-  type         StockDocType
-  locationId   String
-  toLocationId String?
-  supplierId   String?
-  userId       String?
-  comment      String?
-  total        Int          @default(0) // сумма по закупке, коп.
-  createdAt    DateTime     @default(now())
+  id            String       @id @default(cuid())
+  companyId     String
+  number        Int
+  type          StockDocType
+  locationId    String
+  toLocationId  String?
+  warehouseId   String
+  toWarehouseId String?
+  supplierId    String?
+  userId        String?
+  comment       String?
+  total         Int          @default(0) // сумма по закупке, коп.
+  createdAt     DateTime     @default(now())
 
-  company    Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  location   Location       @relation("DocFrom", fields: [companyId, locationId], references: [companyId, id])
-  toLocation Location?      @relation("DocTo", fields: [companyId, toLocationId], references: [companyId, id])
-  supplier   Supplier?      @relation(fields: [companyId, supplierId], references: [companyId, id])
-  items      StockDocItem[]
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location    Location       @relation("DocFrom", fields: [companyId, locationId], references: [companyId, id])
+  toLocation  Location?      @relation("DocTo", fields: [companyId, toLocationId], references: [companyId, id])
+  warehouse   Warehouse      @relation("WhFrom", fields: [companyId, warehouseId], references: [companyId, id])
+  toWarehouse Warehouse?     @relation("WhTo", fields: [companyId, toWarehouseId], references: [companyId, id])
+  supplier    Supplier?      @relation(fields: [companyId, supplierId], references: [companyId, id])
+  items       StockDocItem[]
 
   @@unique([companyId, id])
   @@index([companyId, createdAt])
@@ -629,6 +658,7 @@ model CashShift {
   id           String    @id @default(cuid())
   companyId    String
   locationId   String
+  cashboxId    String
   openedById   String?
   closedById   String?
   openCash     Int       @default(0) // наличные на начало, коп.
@@ -640,6 +670,89 @@ model CashShift {
 
   company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   location Location @relation(fields: [companyId, locationId], references: [companyId, id])
+  cashbox  Cashbox  @relation(fields: [companyId, cashboxId], references: [companyId, id])
 
   @@index([companyId, locationId, openedAt])
+  @@index([companyId, cashboxId, openedAt])
+}
+
+// Должность: название и набор прав. Тип доступа (baseRole) нужен для списков мастеров.
+model Position {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  baseRole  Role     @default(MANAGER)
+  perms     String[]
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  users   User[]
+
+  @@unique([companyId, id])
+  @@index([companyId])
+}
+
+// Касса: наличные в точке, карта, расчётный счёт и т.д. Может быть общей для всех точек.
+model Cashbox {
+  id         String   @id @default(cuid())
+  companyId  String
+  locationId String? // null — касса компании, видна во всех точках
+  name       String
+  isActive   Boolean  @default(true)
+  sort       Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  company      Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location     Location?         @relation(fields: [companyId, locationId], references: [companyId, id])
+  warehouses   Warehouse[]
+  transactions CashTransaction[]
+  shifts       CashShift[]
+
+  @@unique([companyId, id])
+  @@index([companyId])
+}
+
+// Склад внутри точки: запчасти, аксессуары, б/у техника, айфоны...
+model Warehouse {
+  id         String   @id @default(cuid())
+  companyId  String
+  locationId String
+  cashboxId  String? // касса по умолчанию для продаж с этого склада
+  name       String
+  isActive   Boolean  @default(true)
+  sort       Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location   Location    @relation(fields: [companyId, locationId], references: [companyId, id])
+  cashbox    Cashbox?    @relation(fields: [companyId, cashboxId], references: [companyId, id])
+  stocks     Stock[]
+  moves      StockMove[]
+  docsFrom   StockDoc[]  @relation("WhFrom")
+  docsTo     StockDoc[]  @relation("WhTo")
+  orderItems OrderItem[]
+  sales      Sale[]
+
+  @@unique([companyId, id])
+  @@index([companyId])
+}
+
+// Журнал действий сотрудников: кто, что и когда сделал.
+model ActionLog {
+  id         String   @id @default(cuid())
+  companyId  String
+  userId     String?
+  locationId String?
+  cashboxId  String?
+  kind       String // cash, sale, order, stock, settings, users
+  text       String
+  amount     Int?
+  link       String? // ссылка на объект в CRM
+  createdAt  DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [companyId, userId], references: [companyId, id])
+
+  @@index([companyId, createdAt])
 }

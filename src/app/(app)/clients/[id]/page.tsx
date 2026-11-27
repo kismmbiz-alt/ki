@@ -14,7 +14,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
     where: { id },
     include: {
       orders: {
-        where: can(user.role, "allOrders") ? {} : { masterId: user.id },
+        where: can(user, "allOrders") ? {} : { masterId: user.id },
         include: { status: true, items: true, payments: { select: { amount: true } } },
         orderBy: { number: "desc" },
       },

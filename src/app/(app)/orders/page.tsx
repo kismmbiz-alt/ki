@@ -13,7 +13,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   const sp = await searchParams;
   const { db, user, location, company } = await requireUser();
   const tab = ORDER_TABS.some((t) => t.key === sp.tab) ? sp.tab! : "open";
-  const scope = { locationId: location?.id, onlyMasterId: can(user.role, "allOrders") ? undefined : user.id };
+  const scope = { locationId: location?.id, onlyMasterId: can(user, "allOrders") ? undefined : user.id };
   const where = orderWhere({ ...sp, tab }, scope);
   const baseWhere = orderWhere({ ...sp, tab, status: undefined }, scope, { ignoreTab: true });
 

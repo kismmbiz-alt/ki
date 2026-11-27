@@ -7,7 +7,7 @@ import { toCsv } from "@/lib/csv";
 export async function GET(req: Request) {
   const { db, user, location } = await requireUser();
   const sp = Object.fromEntries(new URL(req.url).searchParams) as OrderFilter;
-  const where = orderWhere(sp, { locationId: location?.id, onlyMasterId: can(user.role, "allOrders") ? undefined : user.id });
+  const where = orderWhere(sp, { locationId: location?.id, onlyMasterId: can(user, "allOrders") ? undefined : user.id });
   const list = await db.order.findMany({
     where,
     include: { client: true, status: true, master: true, manager: true, items: true, payments: { select: { amount: true } } },

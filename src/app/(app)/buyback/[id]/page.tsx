@@ -1,23 +1,26 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { can, requireUser } from "@/lib/auth";
+import { can, requirePermission } from "@/lib/auth";
 import { Badge, Card, dt, Field, Input, PageHeader, Select } from "@/components/ui";
 import { Form, Submit } from "@/components/form";
 import { kopToInput, rub } from "@/lib/money";
 import { PAY_LABEL } from "@/lib/domain/cash";
 import { LISTING_STATUS_LABEL, SOURCE_KIND_LABEL } from "@/lib/domain/buyback";
+import { placesFor } from "@/lib/domain/places";
+import { CashboxField, WarehouseField } from "@/components/place-fields";
 import { buyAction, rejectAction, releaseAction, takeAction } from "../actions";
 
 const STATUS_COLOR = { NEW: "#2563eb", IN_WORK: "#d97706", BOUGHT: "#16a34a", REJECTED: "#64748b" };
 
 export default async function ListingPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const ctx = await requireUser();
+  const ctx = await requirePermission("buyback");
   const l = await ctx.db.listing.findUnique({ where: { id }, include: { source: true, assignee: true, product: true } });
   if (!l) notFound();
-  const admin = can(ctx.user.role, "buybackSources");
+  const admin = can(ctx.user, "buybackSources");
   const mine = l.status === "IN_WORK" && l.assigneeId === ctx.user.id;
   const canAct = mine || (admin && l.status !== "BOUGHT");
+  const { warehouses, cashboxes } = await placesFor({ db: ctx.db, companyId: ctx.company.id }, ctx.location?.id);
 
   return (
     <>
@@ -102,7 +105,11 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
                     </Select>
                   </Field>
                 </div>
-                <p className="text-xs text-slate-500">Техника встанет на склад точки «{ctx.location?.name}», сумма уйдёт расходом из кассы.</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <WarehouseField warehouses={warehouses} defaultValue={warehouses.find((w) => /б\/у|бу|айфон|iphone/i.test(w.name))?.id} label="На склад" />
+                  <CashboxField cashboxes={cashboxes} label="Из кассы" />
+                </div>
+                <p className="text-xs text-slate-500">Техника встанет на склад, сумма уйдёт расходом из кассы.</p>
                 <Submit>Записать выкуп</Submit>
               </Form>
             </Card>

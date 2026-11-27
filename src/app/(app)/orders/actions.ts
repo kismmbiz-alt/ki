@@ -18,7 +18,7 @@ async function assertOrderAccess(orderId: string) {
   const { ctx, t } = await ctxT();
   const order = await ctx.db.order.findUnique({ where: { id: orderId } });
   if (!order) throw new Error("Заказ не найден");
-  if (!can(ctx.user.role, "allOrders") && order.masterId !== ctx.user.id) throw new Error("Нет доступа к заказу");
+  if (!can(ctx.user, "allOrders") && order.masterId !== ctx.user.id) throw new Error("Нет доступа к заказу");
   return { ctx, t, order };
 }
 
@@ -51,6 +51,7 @@ export const createOrderAction = safe(async (fd) => {
     estimatedPrice: str(fd, "estimatedPrice") ? toKop(fd.get("estimatedPrice")) : null,
     prepayment: toKop(fd.get("prepayment")),
     prepaymentMethod: (str(fd, "prepaymentMethod") || "CASH") as PayMethod,
+    prepaymentCashboxId: opt(fd, "cashboxId"),
     dueDate: due ? new Date(due) : null,
     masterId: opt(fd, "masterId"),
   });
@@ -65,7 +66,7 @@ export const changeStatusAction = safe(async (fd) => {
 
 export const assignMasterAction = safe(async (fd) => {
   const { ctx, t, order } = await assertOrderAccess(str(fd, "orderId"));
-  if (!can(ctx.user.role, "allOrders")) throw new Error("Назначать мастера может приёмщик или владелец");
+  if (!can(ctx.user, "orderAssign")) throw new Error("Назначать мастера может приёмщик или владелец");
   await orders.assignMaster(t, order.id, opt(fd, "masterId"), ctx.user.id);
   revalidatePath(`/orders/${order.id}`);
 });
@@ -84,7 +85,8 @@ export const addServiceAction = safe(async (fd) => {
 export const addPartAction = safe(async (fd) => {
   const { ctx, t, order } = await assertOrderAccess(str(fd, "orderId"));
   const price = str(fd, "price") ? toKop(fd.get("price")) : undefined;
-  await orders.addPart(t, order.id, ctx.user.id, { productId: str(fd, "productId"), qty: int(fd, "qty", 1), price, warrantyDays: warranty(fd) });
+  const [productId, warehouseId] = str(fd, "productId").split(":");
+  await orders.addPart(t, order.id, ctx.user.id, { productId, qty: int(fd, "qty", 1), price, warrantyDays: warranty(fd), warehouseId: warehouseId || opt(fd, "warehouseId") });
   revalidatePath(`/orders/${order.id}`);
   return "Запчасть списана со склада";
 });
@@ -97,12 +99,13 @@ export const removeItemAction = safe(async (fd) => {
 
 export const addPaymentAction = safe(async (fd) => {
   const { ctx, t, order } = await assertOrderAccess(str(fd, "orderId"));
-  if (!can(ctx.user.role, "cash")) throw new Error("Принимать оплату может приёмщик или владелец");
+  if (!can(ctx.user, "orderPay")) throw new Error("Принимать оплату может приёмщик или владелец");
   await orders.addPayment(t, {
     orderId: order.id,
     userId: ctx.user.id,
     amount: toKop(fd.get("amount")),
     method: (str(fd, "method") || "CASH") as PayMethod,
+    cashboxId: opt(fd, "cashboxId"),
     refund: str(fd, "refund") === "1",
   });
   revalidatePath(`/orders/${order.id}`);
@@ -121,7 +124,7 @@ const warranty = (fd: FormData) => (str(fd, "warrantyDays") ? int(fd, "warrantyD
 export const updateOrderAction = safe(async (fd) => {
   const { ctx, t, order } = await assertOrderAccess(str(fd, "orderId"));
   const due = str(fd, "dueDate");
-  const manage = can(ctx.user.role, "allOrders");
+  const manage = can(ctx.user, "allOrders");
   const n = await orders.updateOrder(t, order.id, ctx.user.id, {
     orderType: str(fd, "orderType") || order.orderType,
     urgent: str(fd, "urgent") === "1",
@@ -137,7 +140,7 @@ export const updateOrderAction = safe(async (fd) => {
     verdict: opt(fd, "verdict"),
     estimatedPrice: str(fd, "estimatedPrice") ? toKop(fd.get("estimatedPrice")) : null,
     dueDate: due ? new Date(due) : null,
-    ...(manage ? { masterId: opt(fd, "masterId"), managerId: opt(fd, "managerId") } : {}),
+    ...(can(ctx.user, "orderAssign") ? { masterId: opt(fd, "masterId"), managerId: opt(fd, "managerId") } : {}),
     ...(manage && fd.has("clientName")
       ? { client: { name: str(fd, "clientName"), address: opt(fd, "clientAddress"), adSourceId: opt(fd, "adSourceId") } }
       : {}),
@@ -155,18 +158,19 @@ export const verdictAction = safe(async (fd) => {
 
 export const discountAction = safe(async (fd) => {
   const { ctx, t, order } = await assertOrderAccess(str(fd, "orderId"));
-  if (!can(ctx.user.role, "cash")) throw new Error("Скидку даёт приёмщик или владелец");
+  if (!can(ctx.user, "orderPay")) throw new Error("Скидку даёт приёмщик или владелец");
   await orders.setDiscount(t, order.id, ctx.user.id, { pct: int(fd, "discountPct", 0), sum: toKop(fd.get("discountSum")) });
   revalidatePath(`/orders/${order.id}`);
 });
 
 export const issueOrderAction = safe(async (fd) => {
   const { ctx, t, order } = await assertOrderAccess(str(fd, "orderId"));
-  if (!can(ctx.user.role, "cash")) throw new Error("Выдаёт заказ приёмщик или владелец");
+  if (!can(ctx.user, "orderPay")) throw new Error("Выдаёт заказ приёмщик или владелец");
   await orders.issueOrder(t, {
     orderId: order.id,
     userId: ctx.user.id,
     method: (str(fd, "method") || "CASH") as PayMethod,
+    cashboxId: opt(fd, "cashboxId"),
     takePayment: str(fd, "takePayment") === "1",
   });
   revalidatePath(`/orders/${order.id}`);

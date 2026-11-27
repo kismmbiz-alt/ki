@@ -7,12 +7,12 @@ import { DOC_LABEL } from "@/lib/domain/stock";
 export default async function DocPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { db } = await requirePermission("stock");
-  const d = await db.stockDoc.findUnique({ where: { id }, include: { items: true, location: true, toLocation: true, supplier: true } });
+  const d = await db.stockDoc.findUnique({ where: { id }, include: { items: true, location: true, toLocation: true, warehouse: true, toWarehouse: true, supplier: true } });
   if (!d) notFound();
   const user = d.userId ? await db.user.findUnique({ where: { id: d.userId } }) : null;
   return (
     <>
-      <PageHeader title={`${DOC_LABEL[d.type]} №${d.number}`} back="/stock/docs" />
+      <PageHeader title={`${DOC_LABEL[d.type]} №${d.number}`} back={`/stock/${({ RECEIPT: "receipts", TRANSFER: "transfers", WRITEOFF: "writeoffs", INVENTORY: "inventory", SUPPLIER_RETURN: "returns" } as const)[d.type]}`} />
       <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
         <Table head={["Товар", d.type === "INVENTORY" ? "Разница" : "Кол-во", "Закупка за шт", "Сумма"]} empty="Нет строк">
           {d.items.map((i) => (
@@ -27,8 +27,14 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         <Card title="Документ">
           <dl className="space-y-1 text-sm">
             <div>Дата: {dt(d.createdAt)}</div>
-            <div>Точка: {d.location.name}</div>
-            {d.toLocation && <div>Куда: {d.toLocation.name}</div>}
+            <div>
+              Склад: {d.warehouse.name} · {d.location.name}
+            </div>
+            {d.toWarehouse && (
+              <div>
+                Куда: {d.toWarehouse.name} · {d.toLocation?.name}
+              </div>
+            )}
             {d.supplier && <div>Поставщик: {d.supplier.name}</div>}
             {d.comment && <div>Комментарий: {d.comment}</div>}
             <div>Провёл: {user?.name ?? "—"}</div>

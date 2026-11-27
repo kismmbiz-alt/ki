@@ -12,7 +12,7 @@ const MAX = 15 * 1024 * 1024;
 export async function importAction(_prev: ImportState, fd: FormData): Promise<ImportState> {
   try {
     const kind = String(fd.get("kind"));
-    const ctx = await requirePermission(kind === "clients" ? "settings" : "stock");
+    const ctx = await requirePermission(kind === "clients" ? "settings" : "stockDocs");
     const file = fd.get("file");
     if (!(file instanceof File) || !file.size) return { error: "Выберите файл" };
     if (file.size > MAX) return { error: "Файл больше 15 МБ" };

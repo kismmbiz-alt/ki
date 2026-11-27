@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Printer } from "lucide-react";
-import { requirePermission } from "@/lib/auth";
+import { can, requirePermission } from "@/lib/auth";
+import { placesFor } from "@/lib/domain/places";
+import { CashboxField } from "@/components/place-fields";
 import { btn, Card, dt, Input, PageHeader, Select } from "@/components/ui";
 import { Form, Submit } from "@/components/form";
 import { rub } from "@/lib/money";
@@ -11,9 +13,11 @@ import { returnSaleAction } from "../actions";
 export default async function SalePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ done?: string }> }) {
   const { id } = await params;
   const { done } = await searchParams;
-  const { db } = await requirePermission("sales");
-  const s = await db.sale.findUnique({ where: { id }, include: { items: true, user: true, client: true, transactions: true, location: true } });
+  const { db, user, company } = await requirePermission("sales");
+  const s = await db.sale.findUnique({ where: { id }, include: { items: true, user: true, client: true, transactions: { include: { cashbox: true } }, location: true, warehouse: true } });
   if (!s) notFound();
+  const canReturn = can(user, "salesReturn");
+  const { cashboxes } = await placesFor({ db, companyId: company.id }, s.locationId);
   const [returns, original] = await Promise.all([
     db.sale.findMany({ where: { returnOfId: s.id }, include: { items: true }, orderBy: { createdAt: "asc" } }),
     s.returnOfId ? db.sale.findUnique({ where: { id: s.returnOfId } }) : null,
@@ -76,7 +80,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
               )}
               {s.transactions.map((t) => (
                 <div key={t.id}>
-                  {PAY_LABEL[t.method]}: {rub(t.amount)}
+                  {PAY_LABEL[t.method]} · {t.cashbox.name}: {rub(t.amount)}
                 </div>
               ))}
               {original && (
@@ -96,7 +100,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
               ))}
             </dl>
           </Card>
-          {!s.isReturn && (
+          {!s.isReturn && canReturn && (
             <Card title="Возврат товара">
               <Form action={returnSaleAction} className="space-y-2">
                 <input type="hidden" name="saleId" value={s.id} />
@@ -117,6 +121,7 @@ export default async function SalePage({ params, searchParams }: { params: Promi
                   <option value="CARD">Вернуть на карту</option>
                   <option value="TRANSFER">Вернуть переводом</option>
                 </Select>
+                <CashboxField cashboxes={cashboxes} defaultValue={s.transactions[0]?.cashboxId} label="Из кассы" />
                 <Submit variant="danger">Оформить возврат</Submit>
               </Form>
             </Card>

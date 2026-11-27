@@ -1,4 +1,4 @@
-import { can, requireUser } from "@/lib/auth";
+import { can, requirePermission } from "@/lib/auth";
 import { btn, Input, PageHeader, Table } from "@/components/ui";
 import { rub } from "@/lib/money";
 import { buybackRating } from "@/lib/domain/buyback";
@@ -8,14 +8,14 @@ const MEDALS = ["🥇", "🥈", "🥉"];
 
 export default async function RatingPage({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
   const sp = await searchParams;
-  const ctx = await requireUser();
+  const ctx = await requirePermission("buyback");
   const now = new Date();
   const monthS = sp.m && /^\d{4}-\d{2}$/.test(sp.m) ? sp.m : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const [y, m] = monthS.split("-").map(Number);
   const from = new Date(y, m - 1, 1);
   const to = new Date(y, m, 1);
   const rows = await buybackRating({ db: ctx.db, companyId: ctx.company.id }, from, to);
-  const showMoney = can(ctx.user.role, "reports");
+  const showMoney = can(ctx.user, "reports");
   const total = rows.reduce((s, r) => s + r.bought, 0);
   const monthName = from.toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
 
@@ -27,7 +27,7 @@ export default async function RatingPage({ searchParams }: { searchParams: Promi
           <button className={btn("secondary")}>Показать</button>
         </form>
       </PageHeader>
-      <BuybackTabs admin={can(ctx.user.role, "buybackSources")} />
+      <BuybackTabs admin={can(ctx.user, "buybackSources")} />
       <p className="mb-3 text-sm text-slate-600">
         Рейтинг за {monthName}: всего выкуплено <b>{total}</b> шт. Место считается по количеству выкупов, при равенстве — по прибыли с перепродажи.
       </p>

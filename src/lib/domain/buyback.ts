@@ -1,6 +1,8 @@
 import type { ListingSourceKind, PayMethod } from "@prisma/client";
 import type { Tenant } from "../db";
 import { moveStockTx } from "./stock";
+import { resolveCashbox, resolveWarehouse } from "./places";
+import { logAction } from "./log";
 import { extractPrice, makeTitle, matchesQuery, type FoundPost } from "../collectors/text";
 
 export const SOURCE_KIND_LABEL: Record<ListingSourceKind, string> = {
@@ -106,7 +108,7 @@ export async function rejectListing(t: Tenant, id: string, actor: Actor, reason:
  */
 export async function buyListing(
   t: Tenant,
-  b: { id: string; actor: Actor; locationId: string; buyPrice: number; productName: string; salePrice?: number; method: PayMethod },
+  b: { id: string; actor: Actor; locationId: string; warehouseId?: string | null; cashboxId?: string | null; buyPrice: number; productName: string; salePrice?: number; method: PayMethod },
 ) {
   const { db, companyId } = t;
   if (b.buyPrice <= 0) throw new Error("Укажите, за сколько выкупили");
@@ -125,9 +127,11 @@ export async function buyListing(
     const product = await tx.product.create({
       data: { companyId, name, price: b.salePrice ?? 0, cost: b.buyPrice },
     });
+    const warehouseId = await resolveWarehouse(tx, b.locationId, b.warehouseId);
+    const cashboxId = await resolveCashbox(tx, b.locationId, b.cashboxId);
     await moveStockTx(tx, {
       productId: product.id,
-      locationId: b.locationId,
+      warehouseId,
       qty: 1,
       type: "RECEIPT",
       userId,
@@ -138,6 +142,7 @@ export async function buyListing(
       data: {
         companyId,
         locationId: b.locationId,
+        cashboxId,
         userId: b.actor.userId,
         amount: -b.buyPrice,
         method: b.method,
@@ -145,6 +150,7 @@ export async function buyListing(
         comment: `${name} · ${l.url}`.slice(0, 300),
       },
     });
+    await logAction(tx, { companyId, userId: b.actor.userId, locationId: b.locationId, cashboxId, kind: "buyback", text: `Выкуп: ${name}`, amount: -b.buyPrice, link: `/buyback/${l.id}` });
     return tx.listing.update({ where: { id: l.id }, data: { productId: product.id } });
   });
 }

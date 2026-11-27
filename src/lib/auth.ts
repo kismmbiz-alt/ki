@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import { authenticator } from "otplib";
 import type { Role } from "@prisma/client";
 import { prisma, tenantDb } from "./db";
+import { ALL_PERMS, can, isPerm, ROLE_PERMS, type Permission } from "./perms";
 
 const COOKIE = "crm_session";
 const SESSION_DAYS = 30;
@@ -44,7 +45,7 @@ async function loadSession() {
   if (!token) return null;
   const session = await prisma.session.findUnique({
     where: { id: hashToken(token) },
-    include: { user: { include: { company: true } } },
+    include: { user: { include: { company: true, position: true } } },
   });
   if (!session || session.expiresAt < new Date() || !session.user.isActive) return null;
   return session;
@@ -62,7 +63,9 @@ export async function requireUser() {
   const session = await loadSession();
   if (!session) redirect("/login");
   if (session.user.totpEnabled && !session.twoFactorOk) redirect("/login/2fa");
-  const { user } = session;
+  const perms: Permission[] =
+    session.user.role === "OWNER" ? ALL_PERMS : session.user.position ? session.user.position.perms.filter(isPerm) : ROLE_PERMS[session.user.role];
+  const user = { ...session.user, perms };
   const db = tenantDb(user.companyId);
 
   const locations = await db.location.findMany({
@@ -75,25 +78,12 @@ export async function requireUser() {
   return { session, user, company: user.company, db, locations, location };
 }
 
-export type Permission = "settings" | "cash" | "reports" | "stock" | "sales" | "allOrders" | "buybackSources";
-
-const RULES: Record<Permission, Role[]> = {
-  settings: ["OWNER", "ADMIN"],
-  reports: ["OWNER", "ADMIN"],
-  cash: ["OWNER", "ADMIN", "MANAGER"],
-  stock: ["OWNER", "ADMIN", "MANAGER"],
-  sales: ["OWNER", "ADMIN", "MANAGER"],
-  allOrders: ["OWNER", "ADMIN", "MANAGER"],
-  buybackSources: ["OWNER", "ADMIN"],
-};
-
-export function can(role: Role, p: Permission) {
-  return RULES[p].includes(role);
-}
+export type { Permission };
+export { can };
 
 export async function requirePermission(p: Permission) {
   const ctx = await requireUser();
-  if (!can(ctx.user.role, p)) redirect("/orders");
+  if (!can(ctx.user, p)) redirect(p === "allOrders" ? "/orders" : "/dashboard");
   return ctx;
 }
 

@@ -1,3 +1,5 @@
+import { placesFor } from "@/lib/domain/places";
+import { CashboxField } from "@/components/place-fields";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, CheckCircle2, FileText, Flame, Info, Paperclip, Trash2, Wrench } from "lucide-react";
@@ -45,7 +47,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
     },
   });
   if (!order) notFound();
-  if (!can(user.role, "allOrders") && order.masterId !== user.id) notFound();
+  if (!can(user, "allOrders") && order.masterId !== user.id) notFound();
 
   const [statuses, staff, services, products, sources, dicts] = await Promise.all([
     db.orderStatus.findMany({ orderBy: { sort: "asc" } }),
@@ -53,17 +55,20 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
     db.service.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     db.product.findMany({
       where: { isActive: true, stocks: { some: { locationId: order.locationId, qty: { gt: 0 } } } },
-      include: { stocks: { where: { locationId: order.locationId } } },
+      include: { stocks: { where: { locationId: order.locationId, qty: { gt: 0 } }, include: { warehouse: true } } },
       orderBy: { name: "asc" },
     }),
     db.adSource.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     loadDictionaries({ db, companyId: company.id }),
   ]);
+  const { cashboxes } = await placesFor({ db, companyId: company.id }, order.locationId);
+  const partOptions = products.flatMap((p) => p.stocks.filter((s) => s.warehouse.isActive).map((s) => ({ p, s })));
+  const manyWh = new Set(partOptions.map((x) => x.s.warehouseId)).size > 1;
   const t = totals(order.items, order.payments.reduce((s, p) => s + p.amount, 0), order);
   const closed = order.status.kind === "CLOSED" || order.status.kind === "CANCELED";
-  const canCash = can(user.role, "cash");
-  const manage = can(user.role, "allOrders");
-  const showProfit = can(user.role, "reports");
+  const canCash = can(user, "orderPay");
+  const manage = can(user, "allOrders");
+  const showProfit = can(user, "cost");
   const masters = staff.filter((u) => u.role !== "MANAGER");
   const tabLink = (k: string) =>
     `flex items-center gap-2 rounded-lg px-4 py-2 text-sm ${tab === k ? "bg-white font-medium text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"}`;
@@ -404,11 +409,12 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
                     <input type="hidden" name="orderId" value={order.id} />
                     <Select name="productId" required defaultValue="">
                       <option value="" disabled>
-                        {products.length ? "Выберите запчасть" : "На складе точки нет запчастей"}
+                        {partOptions.length ? "Выберите запчасть" : "На складах точки нет запчастей"}
                       </option>
-                      {products.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} · {rub(p.repairPrice ?? p.price)} · ост. {p.stocks[0]?.qty ?? 0}
+                      {partOptions.map(({ p, s }) => (
+                        <option key={s.id} value={`${p.id}:${s.warehouseId}`}>
+                          {p.name} · {rub(p.repairPrice ?? p.price)} · ост. {s.qty}
+                          {manyWh ? ` · ${s.warehouse.name}` : ""}
                         </option>
                       ))}
                     </Select>
@@ -459,6 +465,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
                   <li key={p.id} className="flex justify-between">
                     <span>
                       {dt(p.createdAt)} · {PAY_LABEL[p.method]}
+                      {cashboxes.length > 1 ? ` · ${cashboxes.find((c) => c.id === p.cashboxId)?.name ?? ""}` : ""}
                     </span>
                     <span className={p.amount < 0 ? "text-red-600" : ""}>{rub(p.amount)}</span>
                   </li>
@@ -476,6 +483,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
                     <option value="TRANSFER">Перевод</option>
                   </Select>
                 </div>
+                <CashboxField cashboxes={cashboxes} />
                 <label className="flex items-center gap-2 text-xs text-slate-500">
                   <input type="checkbox" name="refund" value="1" /> это возврат клиенту
                 </label>
@@ -502,6 +510,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
                       <option value="CARD">Карта</option>
                       <option value="TRANSFER">Перевод</option>
                     </Select>
+                    <CashboxField cashboxes={cashboxes} />
                     <Submit variant="success" className="w-full">
                       Принять {rub(t.due)} и выдать
                     </Submit>

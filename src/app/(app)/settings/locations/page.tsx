@@ -10,7 +10,7 @@ export default async function LocationsPage() {
   return (
     <>
       <PageHeader title="Настройки" />
-      <SettingsTabs admin />
+      <SettingsTabs />
       <div className="grid gap-4 lg:grid-cols-2">
         {locations.map((l) => (
           <Card key={l.id} title={l.name}>
@@ -24,6 +24,9 @@ export default async function LocationsPage() {
               </Field>
               <Field label="Телефон">
                 <Input name="phone" defaultValue={l.phone ?? ""} />
+              </Field>
+              <Field label="План выручки на месяц, ₽" hint="заказы + продажи; показывается на главной">
+                <Input name="planRevenue" defaultValue={l.planRevenue ? String(l.planRevenue / 100) : ""} inputMode="decimal" />
               </Field>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" name="isActive" value="1" defaultChecked={l.isActive} /> работает
@@ -42,6 +45,9 @@ export default async function LocationsPage() {
             </Field>
             <Field label="Телефон">
               <Input name="phone" />
+            </Field>
+            <Field label="План выручки на месяц, ₽">
+              <Input name="planRevenue" inputMode="decimal" />
             </Field>
             <Submit>Добавить точку</Submit>
           </Form>

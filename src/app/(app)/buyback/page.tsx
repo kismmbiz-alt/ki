@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ListingStatus, Prisma } from "@prisma/client";
-import { can, requireUser } from "@/lib/auth";
+import { can, requirePermission } from "@/lib/auth";
 import { btn, Card, dt, Field, Input, PageHeader, Textarea } from "@/components/ui";
 import { Form, Submit } from "@/components/form";
 import { rub } from "@/lib/money";
@@ -19,7 +19,7 @@ type View = keyof typeof VIEWS;
 
 export default async function BuybackPage({ searchParams }: { searchParams: Promise<{ v?: string; q?: string }> }) {
   const sp = await searchParams;
-  const ctx = await requireUser();
+  const ctx = await requirePermission("buyback");
   const view: View = sp.v && sp.v in VIEWS ? (sp.v as View) : "new";
   const where: Prisma.ListingWhereInput = { ...VIEWS[view].where };
   if (view === "mine") where.assigneeId = ctx.user.id;
@@ -37,7 +37,7 @@ export default async function BuybackPage({ searchParams }: { searchParams: Prom
   ]);
   const count = (s: ListingStatus) => counts.find((c) => c.status === s)?._count._all ?? 0;
   const viewCount: Record<View, number> = { new: count("NEW"), mine, work: count("IN_WORK"), bought: count("BOUGHT"), rejected: count("REJECTED") };
-  const admin = can(ctx.user.role, "buybackSources");
+  const admin = can(ctx.user, "buybackSources");
 
   return (
     <>

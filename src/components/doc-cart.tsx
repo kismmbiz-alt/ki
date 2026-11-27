@@ -7,7 +7,7 @@ import { inputCls } from "./ui";
 type P = { id: string; name: string; sku: string | null; barcode: string | null; qty: number; cost: number };
 
 /** Строки складского документа: поиск товара, количество, закупочная цена. */
-export function DocCart({ products, mode }: { products: P[]; mode: "RECEIPT" | "TRANSFER" | "WRITEOFF" | "INVENTORY" }) {
+export function DocCart({ products, mode }: { products: P[]; mode: "RECEIPT" | "TRANSFER" | "WRITEOFF" | "INVENTORY" | "SUPPLIER_RETURN" }) {
   const [rows, setRows] = useState<{ productId: string; qty: string; cost: string }[]>([]);
   const [q, setQ] = useState("");
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);

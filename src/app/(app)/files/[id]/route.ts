@@ -5,7 +5,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const { db, user } = await requireUser();
   const f = await db.orderFile.findUnique({ where: { id }, include: { order: { select: { masterId: true } } } });
-  if (!f || (!can(user.role, "allOrders") && f.order.masterId !== user.id)) return new Response("Не найдено", { status: 404 });
+  if (!f || (!can(user, "allOrders") && f.order.masterId !== user.id)) return new Response("Не найдено", { status: 404 });
   const inline = /^(image\/(png|jpeg|webp|gif|heic|heif)|application\/pdf)$/.test(f.mime);
   return new Response(new Uint8Array(f.data), {
     headers: {

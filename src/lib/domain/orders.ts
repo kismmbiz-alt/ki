@@ -21,6 +21,7 @@ export type NewOrderInput = {
   estimatedPrice?: number | null;
   prepayment?: number;
   prepaymentMethod?: "CASH" | "CARD" | "TRANSFER";
+  prepaymentCashboxId?: string | null;
   dueDate?: Date | null;
   masterId?: string | null;
 };
@@ -99,6 +100,7 @@ export async function createOrder({ db, companyId }: Tenant, input: NewOrderInpu
       EQUIPMENT: input.equipment,
       APPEARANCE: input.appearance,
     });
+    await logAction(tx, { companyId, userId: input.authorId, locationId: input.locationId, kind: "order", text: `Принят заказ №${order.number}`, link: `/orders/${order.id}` });
     if (input.prepayment && input.prepayment > 0) {
       await addPaymentTx(tx, {
         orderId: order.id,
@@ -106,6 +108,7 @@ export async function createOrder({ db, companyId }: Tenant, input: NewOrderInpu
         userId: input.authorId,
         amount: input.prepayment,
         method: input.prepaymentMethod ?? "CASH",
+        cashboxId: input.prepaymentCashboxId,
         prepayment: true,
       });
     }
@@ -138,6 +141,7 @@ export async function changeStatus({ db, companyId }: Tenant, orderId: string, s
     await tx.orderEvent.create({
       data: { companyId, orderId, userId, text: `Статус: «${order.status.name}» → «${status.name}»` },
     });
+    await logAction(tx, { companyId, userId, locationId: order.locationId, kind: "order", text: `Заказ №${order.number}: «${order.status.name}» → «${status.name}»`, link: `/orders/${orderId}` });
     return updated;
   });
 }
@@ -184,15 +188,16 @@ export async function addPart(
   { db, companyId }: Tenant,
   orderId: string,
   userId: string,
-  item: { productId: string; qty: number; price?: number; warrantyDays?: number | null },
+  item: { productId: string; qty: number; price?: number; warrantyDays?: number | null; warehouseId?: string | null },
 ) {
   if (item.qty <= 0) throw new Error("Количество должно быть больше нуля");
   return db.$transaction(async (tx) => {
     const order = await assertOpen(tx, orderId);
     const product = await tx.product.findUniqueOrThrow({ where: { id: item.productId } });
+    const warehouseId = await resolveWarehouse(tx, order.locationId, item.warehouseId);
     await moveStockTx(tx, {
       productId: product.id,
-      locationId: order.locationId,
+      warehouseId,
       qty: -item.qty,
       type: "ORDER",
       userId,
@@ -208,6 +213,7 @@ export async function addPart(
         price: item.price ?? product.repairPrice ?? product.price,
         cost: product.cost,
         warrantyDays: item.warrantyDays ?? null,
+        warehouseId,
       },
     });
     await tx.orderEvent.create({ data: { companyId, orderId, userId, text: `Установлена запчасть: ${product.name} × ${item.qty}` } });
@@ -221,6 +227,7 @@ export async function removeItem({ db, companyId }: Tenant, itemId: string, user
     if (item.kind === "PART" && item.productId) {
       await moveStockTx(tx, {
         productId: item.productId,
+        warehouseId: item.warehouseId,
         locationId: order.locationId,
         qty: item.qty,
         type: "RETURN",
@@ -242,7 +249,7 @@ async function assertOpen(tx: Tx, orderId: string) {
 
 export async function addPayment(
   { db }: Tenant,
-  input: { orderId: string; userId: string; amount: number; method: "CASH" | "CARD" | "TRANSFER"; refund?: boolean },
+  input: { orderId: string; userId: string; amount: number; method: "CASH" | "CARD" | "TRANSFER"; cashboxId?: string | null; refund?: boolean },
 ) {
   if (input.amount <= 0) throw new Error("Сумма должна быть больше нуля");
   return db.$transaction(async (tx) => {
@@ -253,20 +260,34 @@ export async function addPayment(
       userId: input.userId,
       amount: input.refund ? -input.amount : input.amount,
       method: input.method,
+      cashboxId: input.cashboxId,
     });
   });
 }
 
 async function addPaymentTx(
   tx: Tx,
-  p: { orderId: string; locationId: string; userId: string; amount: number; method: "CASH" | "CARD" | "TRANSFER"; prepayment?: boolean },
+  p: { orderId: string; locationId: string; userId: string; amount: number; method: "CASH" | "CARD" | "TRANSFER"; cashboxId?: string | null; prepayment?: boolean },
 ) {
   const order = await tx.order.findUniqueOrThrow({ where: { id: p.orderId } });
   const companyId = order.companyId;
   const category = p.amount < 0 ? "Возврат по заказу" : p.prepayment ? "Предоплата по заказу" : "Оплата заказа";
+  const cashboxId = await resolveCashbox(tx, p.locationId, p.cashboxId);
+  const box = await tx.cashbox.findUniqueOrThrow({ where: { id: cashboxId } });
+  await logAction(tx, {
+    companyId,
+    userId: p.userId,
+    locationId: p.locationId,
+    cashboxId,
+    kind: "order",
+    text: `${category} №${order.number}, касса «${box.name}»`,
+    amount: p.amount,
+    link: `/orders/${order.id}`,
+  });
   await tx.cashTransaction.create({
     data: { companyId,
       locationId: p.locationId,
+      cashboxId,
       userId: p.userId,
       orderId: p.orderId,
       amount: p.amount,
@@ -297,7 +318,7 @@ async function orderTotalsTx(tx: Tx, orderId: string) {
  */
 export async function issueOrder(
   { db, companyId }: Tenant,
-  input: { orderId: string; userId: string; method: "CASH" | "CARD" | "TRANSFER"; takePayment: boolean },
+  input: { orderId: string; userId: string; method: "CASH" | "CARD" | "TRANSFER"; cashboxId?: string | null; takePayment: boolean },
 ) {
   return db.$transaction(async (tx) => {
     const order = await tx.order.findUniqueOrThrow({ where: { id: input.orderId }, include: { status: true } });
@@ -307,9 +328,10 @@ export async function issueOrder(
     const t = await orderTotalsTx(tx, order.id);
     if (t.due > 0) {
       if (!input.takePayment) throw new Error(`Клиент должен ещё ${(t.due / 100).toLocaleString("ru-RU")} ₽`);
-      await addPaymentTx(tx, { orderId: order.id, locationId: order.locationId, userId: input.userId, amount: t.due, method: input.method });
+      await addPaymentTx(tx, { orderId: order.id, locationId: order.locationId, userId: input.userId, amount: t.due, method: input.method, cashboxId: input.cashboxId });
     }
     await tx.order.update({ where: { id: order.id }, data: { statusId: closed.id, closedAt: new Date() } });
+    await logAction(tx, { companyId, userId: input.userId, locationId: order.locationId, kind: "order", text: `Заказ №${order.number} выдан клиенту`, link: `/orders/${order.id}` });
     await tx.orderEvent.create({
       data: { companyId, orderId: order.id, userId: input.userId, text: `Статус: «${order.status.name}» → «${closed.name}»` },
     });
@@ -429,4 +451,6 @@ export function totals(items: { kind: string; qty: number; price: number; cost: 
 
 // импорт ниже, чтобы избежать циклов
 import { moveStockTx } from "./stock";
+import { resolveCashbox, resolveWarehouse } from "./places";
+import { logAction } from "./log";
 import { learnTx } from "./dict";
