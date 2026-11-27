@@ -19,13 +19,14 @@ export function DocCart({ products, mode }: { products: P[]; mode: "RECEIPT" | "
   const found = needle
     ? products.filter((p) => p.barcode === q.trim() || p.sku?.toLowerCase() === needle || p.name.toLowerCase().includes(needle)).slice(0, 10)
     : [];
-  const add = (p: P) => {
+  const add = (p: P, clear = false) => {
     setRows((r) =>
       r.some((x) => x.productId === p.id)
         ? r.map((x) => (x.productId === p.id && mode !== "INVENTORY" ? { ...x, qty: String(Number(x.qty || 0) + 1) } : x))
         : [...r, { productId: p.id, qty: mode === "INVENTORY" ? String(p.qty) : "1", cost: String(p.cost / 100) }],
     );
-    setQ("");
+    // поиск остаётся, пока человек сам его не очистит; сканер штрихкода очищает сам
+    if (clear) setQ("");
   };
   const set = (i: number, k: "qty" | "cost", v: string) => setRows((rs) => rs.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
   const dictList = dict === null ? [] : products.filter((p) => !dict.trim() || p.name.toLowerCase().includes(dict.trim().toLowerCase()) || p.sku?.toLowerCase() === dict.trim().toLowerCase()).slice(0, 200);
@@ -66,17 +67,25 @@ export function DocCart({ products, mode }: { products: P[]; mode: "RECEIPT" | "
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              if (found[0]) add(found[0]);
+              if (found[0]) add(found[0], found[0].barcode === q.trim() || found[0].sku === q.trim());
             }
           }}
           autoFocus
         />
+        {q && (
+              <button type="button" onClick={() => setQ("")} className="absolute top-2 right-2 z-20 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Очистить поиск" title="Очистить поиск">
+                <X size={14} />
+              </button>
+            )}
         {found.length > 0 && (
-          <ul className="absolute z-10 mt-1 w-full rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+          <ul className="mt-1 w-full rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
             {found.map((p) => (
               <li key={p.id}>
                 <button type="button" onClick={() => add(p)} className="flex w-full justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-100">
-                  <span className="text-slate-800">{p.name}</span>
+                  <span className="text-slate-800">
+                    {rows.some((r) => r.productId === p.id) && <span className="mr-1 text-emerald-600">✓</span>}
+                    {p.name}
+                  </span>
                   <span className="shrink-0 text-slate-500">ост. {p.qty}</span>
                 </button>
               </li>

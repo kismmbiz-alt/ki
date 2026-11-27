@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { Minus, Plus, Search, Trash2 } from "lucide-react";
+import { Minus, Plus, Search, Trash2, X } from "lucide-react";
 import { inputCls } from "./ui";
 
 type P = { id: string; name: string; sku: string | null; price: number; minPrice: number | null; qty: number; other: number; barcode: string | null; groupId: string | null; prices?: Record<string, number> };
@@ -43,13 +43,14 @@ export function SaleCart({
     .filter((p) => (!g || (groups.find((x) => x.id === g)?.ids ?? [g]).includes(p.groupId ?? "")) && (!needle || p.barcode === q.trim() || p.sku?.toLowerCase() === needle || p.name.toLowerCase().includes(needle)))
     .slice(0, 200);
 
-  const add = (p: P) => {
+  const add = (p: P, clear = false) => {
     setRows((r) => {
       const ex = r.find((x) => x.productId === p.id);
       if (ex) return r.map((x) => (x.productId === p.id ? { ...x, qty: Math.min(x.qty + 1, p.qty) } : x));
       return [...r, { productId: p.id, qty: 1, price: String(priceFor(p) / 100) }];
     });
-    setQ("");
+    // поиск остаётся, пока человек сам его не очистит; сканер штрихкода очищает сам
+    if (clear) setQ("");
   };
   const num = (s: string) => Number(s.replace(",", ".").replace(/\s/g, "") || 0);
   const sum = rows.reduce((s, r) => s + r.qty * num(r.price), 0);
@@ -72,11 +73,16 @@ export function SaleCart({
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  if (list[0]) add(list[0]);
+                  if (list[0]) add(list[0], list[0].barcode === q.trim() || list[0].sku === q.trim());
                 }
               }}
               autoFocus
             />
+            {q && (
+              <button type="button" onClick={() => setQ("")} className="absolute top-2 right-2 z-20 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Очистить поиск" title="Очистить поиск">
+                <X size={14} />
+              </button>
+            )}
           </div>
           {priceOptions.length > 1 && (
             <select
