@@ -109,6 +109,67 @@ const REPLACEMENTS: Rule[] = [
 
 const pick = (t: string, rules: Rule[]) => rules.filter((r) => r.re.test(t)).map((r) => r.label);
 
+/** Состояние — те же пять ступеней, что в оценке Авито. */
+export const CONDITIONS = ["NEW", "EXCELLENT", "GOOD", "FAIR", "REPAIR"] as const;
+export type Condition = (typeof CONDITIONS)[number];
+export const CONDITION_LABEL: Record<Condition, string> = {
+  NEW: "Новое",
+  EXCELLENT: "Отличное",
+  GOOD: "Хорошее",
+  FAIR: "Удовлетворительное",
+  REPAIR: "Требуется ремонт",
+};
+export const CONDITION_HINT: Record<Condition, string> = {
+  NEW: "не активирован, в плёнке или запечатан",
+  EXCELLENT: "без следов использования, всё работает",
+  GOOD: "небольшие потёртости и царапины, всё работает",
+  FAIR: "сколы, трещины корпуса или менялся экран, но всё работает",
+  REPAIR: "разбит, не включается, не работает Face ID, сеть и т.п.",
+};
+export const isCondition = (v: unknown): v is Condition => typeof v === "string" && (CONDITIONS as readonly string[]).includes(v);
+
+/** Неисправности, из-за которых телефон «требует ремонта». */
+const BROKEN = new Set([
+  "Разбит экран",
+  "Полосы / пятна на экране",
+  "Не работает Face ID",
+  "Не работает Touch ID",
+  "Вздут аккумулятор",
+  "Был в воде",
+  "Не ловит сеть",
+  "Привязан iCloud",
+  "Не включается",
+]);
+
+/** Состояние по тексту и найденным дефектам. Если продавец ничего не написал — «Хорошее». */
+export function detectCondition(t: string, defects: string[], replacements: string[]): Condition {
+  if (defects.some((d) => BROKEN.has(d)) || /на\s+запчаст|требует\s+ремонт|под\s+ремонт|нужен\s+ремонт/.test(t)) return "REPAIR";
+  if (defects.some((d) => d === "Сколы" || d === "Трещины") || replacements.some((r) => r !== "Менялся аккумулятор")) return "FAIR";
+  if (/запечатан|не\s*активирован|нераспакован|не\s+распакован|(^|[^а-яё])нов(ый|ая)\s+(телефон|айфон|iphone|в\s+пл[её]нке)/.test(t) && !/как\s+нов/.test(t)) return "NEW";
+  if (defects.includes("Царапины")) return "GOOD";
+  if (/идеал|как\s+нов|отличн[а-яё]*\s+состояни|без\s+(царапин|следов)|состояние\s+(нового|5\s*\/\s*5|10\s*\/\s*10)/.test(t)) return "EXCELLENT";
+  return "GOOD";
+}
+
+/** Цвета как в оценке Авито и их названия у Apple и продавцов. */
+export const COLORS: { label: string; re: RegExp }[] = [
+  { label: "черный", re: /ч[её]рн|black|midnight|полночь|темная\s+ночь|т[её]мн[а-яё]*\s+ночь|space\s*black/ },
+  { label: "белый", re: /бел(ый|ая|ого|ом)(?![а-яё])|white|starlight|сияющ[а-яё]*\s+звезд/ },
+  { label: "серый", re: /сер(ый|ая|ого|ом)(?![а-яё])|графит|graphite|space\s*gr[ae]y|titanium\s+gray/ },
+  { label: "серебристый", re: /серебр|silver/ },
+  { label: "золотистый", re: /золот|gold/ },
+  { label: "голубой", re: /голуб|sierra\s*blue|небесн/ },
+  { label: "синий", re: /син(ий|яя|его|ем)(?![а-яё])|(?<!sierra\s)blue|pacific/ },
+  { label: "зеленый", re: /зел[её]н|green|alpine/ },
+  { label: "красный", re: /красн|(?<![a-z])red(?![a-z])/ },
+  { label: "фиолетовый", re: /фиолет|purple|лилов|deep\s+purple/ },
+  { label: "розовый", re: /розов|pink/ },
+  { label: "желтый", re: /ж[её]лт|yellow/ },
+  { label: "бежевый", re: /беж|natural|натуральн[а-яё]*\s+титан|desert|пустын/ },
+];
+
+export const detectColor = (t: string): string | null => COLORS.find((c) => c.re.test(t))?.label ?? null;
+
 export type DeviceInfo = {
   model: string | null;
   memoryGb: number | null;
@@ -116,6 +177,8 @@ export type DeviceInfo = {
   kit: string[];
   defects: string[];
   replacements: string[];
+  condition: Condition;
+  color: string | null;
 };
 
 /** Всё, что удалось понять о технике из текста объявления. */
@@ -135,12 +198,15 @@ export function parseDevice(text: string): DeviceInfo {
   if (battery !== null && battery < 80 && !defects.includes("Плохо держит заряд")) defects.push(`АКБ ${battery}% — нужна замена`);
   let kit = pick(t, KIT);
   if (kit.includes("Без коробки")) kit = kit.filter((k) => k !== "Коробка");
+  const replacements = pick(t, REPLACEMENTS);
   return {
     model: detectModel(text),
     memoryGb: detectMemory(text),
     batteryPct: battery,
     kit,
     defects,
-    replacements: pick(t, REPLACEMENTS),
+    replacements,
+    condition: detectCondition(t, defects, replacements),
+    color: detectColor(t),
   };
 }

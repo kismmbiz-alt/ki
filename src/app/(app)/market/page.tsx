@@ -1,26 +1,36 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
-import { btn, Card, dt, Field, PageHeader, Select, Stat } from "@/components/ui";
+import { btn, Card, dt, Field, PageHeader, Select } from "@/components/ui";
 import { DeviceChips } from "@/components/market";
 import { PriceLine } from "@/components/charts";
 import { rub } from "@/lib/money";
-import { IPHONE_MODELS, MEMORY_OPTIONS, memoryLabel } from "@/lib/market/device";
-import { estimate, MARKET_DAYS, MIN_COUNT, marketTable, priceHistory, suggestedBuyPrice, type Stats } from "@/lib/market/prices";
+import { COLORS, CONDITION_HINT, CONDITION_LABEL, CONDITIONS, IPHONE_MODELS, isCondition, MEMORY_OPTIONS, memoryLabel } from "@/lib/market/device";
+import { ESTIMATE_DAYS, estimate, MARKET_DAYS, MIN_COUNT, marketTable, priceHistory, suggestedBuyPrice } from "@/lib/market/prices";
 import { MarketTabs } from "./tabs";
 
-/** Состояние техники и сколько процентов от цены рынка оно обычно «съедает». Ориентир, не точный расчёт. */
-const CONDITIONS = [
-  { key: "bat", label: "АКБ ниже 80%", pct: 5 },
-  { key: "scr", label: "Царапины, потёртости", pct: 5 },
-  { key: "chip", label: "Сколы или трещины корпуса", pct: 10 },
-  { key: "glass", label: "Разбит экран или задняя крышка", pct: 25 },
-  { key: "face", label: "Не работает Face ID", pct: 20 },
-  { key: "rep", label: "Менялся экран или АКБ (не оригинал)", pct: 15 },
-  { key: "box", label: "Нет коробки и зарядки", pct: 3 },
-] as const;
+/** Города для живой проверки на Авито: как в адресе сайта. */
+const REGIONS: [string, string][] = [
+  ["rossiya", "Вся Россия"],
+  ["moskva", "Москва"],
+  ["sankt-peterburg", "Санкт-Петербург"],
+  ["ekaterinburg", "Екатеринбург"],
+  ["novosibirsk", "Новосибирск"],
+  ["kazan", "Казань"],
+  ["nizhniy_novgorod", "Нижний Новгород"],
+  ["chelyabinsk", "Челябинск"],
+  ["tyumen", "Тюмень"],
+  ["perm", "Пермь"],
+  ["ufa", "Уфа"],
+  ["samara", "Самара"],
+  ["krasnodar", "Краснодар"],
+  ["rostov-na-donu", "Ростов-на-Дону"],
+  ["omsk", "Омск"],
+  ["krasnoyarsk", "Красноярск"],
+];
 
-type SP = { model?: string; mem?: string } & Partial<Record<(typeof CONDITIONS)[number]["key"], string>>;
+type SP = { model?: string; mem?: string; cond?: string; color?: string; city?: string };
 
+/** Оценка техники как на Авито: город, состояние, модель, память, цвет → рыночная цена и сколько предложить. */
 export default async function EstimatePage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const ctx = await requirePermission("buyback");
@@ -28,26 +38,28 @@ export default async function EstimatePage({ searchParams }: { searchParams: Pro
   const margin = ctx.company.marketMargin;
   const model = sp.model && (IPHONE_MODELS as readonly string[]).includes(sp.model) ? sp.model : null;
   const mem = sp.mem && MEMORY_OPTIONS.includes(Number(sp.mem)) ? Number(sp.mem) : null;
-  const picked = CONDITIONS.filter((c) => sp[c.key]);
+  const cond = isCondition(sp.cond) ? sp.cond : "GOOD";
+  const color = sp.color && COLORS.some((c) => c.label === sp.color) ? sp.color : null;
+  const regions = REGIONS.some(([s]) => s === ctx.company.avitoRegion) ? REGIONS : [[ctx.company.avitoRegion, ctx.company.avitoRegion] as [string, string], ...REGIONS];
+  const city = sp.city && regions.some(([s]) => s === sp.city) ? sp.city : ctx.company.avitoRegion;
 
-  const [cells, est, history, fresh] = await Promise.all([
+  const [cells, est, history] = await Promise.all([
     marketTable(t),
-    model && mem ? estimate(t, model, mem, ctx.company.avitoRegion) : null,
+    model && mem ? estimate(t, model, mem, { region: city, condition: cond, color }) : null,
     model && mem ? priceHistory(t, model, mem, 30) : [],
-    model && mem
-      ? ctx.db.listing.findMany({ where: { model, memoryGb: mem, price: { not: null } }, orderBy: [{ postedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }], take: 8 })
-      : [],
   ]);
-
-  const market: Stats | null = est ? (est.listings ?? est.avito.stats ?? est.ownSales) : null;
-  const source = est ? (est.listings ? "по собранным объявлениям" : est.avito.stats ? "по Авито прямо сейчас" : est.ownSales ? "по вашим продажам" : "") : "";
-  const deductPct = picked.reduce((s, c) => s + c.pct, 0);
-  const marketAdj = market ? Math.round((market.median * (100 - deductPct)) / 100) : 0;
-  const offer = market ? suggestedBuyPrice(marketAdj, margin) : 0;
+  const market = est?.picked.stats ?? null;
+  const offer = market ? suggestedBuyPrice(market.median, margin) : 0;
+  const total = est ? est.counts.listings + est.counts.avito : 0;
 
   const byKey = new Map(cells.map((c) => [`${c.model}|${c.memoryGb}`, c]));
   const models = IPHONE_MODELS.filter((m) => MEMORY_OPTIONS.some((g) => byKey.has(`${m}|${g}`)));
   const mems = MEMORY_OPTIONS.filter((g) => cells.some((c) => c.memoryGb === g));
+  const link = (patch: Partial<SP>) => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries({ model: model ?? undefined, mem: mem ? String(mem) : undefined, cond, color: color ?? undefined, city, ...patch })) if (v) p.set(k, v);
+    return `/market?${p}`;
+  };
 
   return (
     <>
@@ -55,8 +67,28 @@ export default async function EstimatePage({ searchParams }: { searchParams: Pro
       <MarketTabs user={ctx.user} />
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card title="Сколько стоит?">
+        <Card title="Узнайте, сколько стоит смартфон">
           <form className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Город">
+                <Select name="city" defaultValue={city}>
+                  {regions.map(([s, n]) => (
+                    <option key={s} value={s}>
+                      {n}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Состояние">
+                <Select name="cond" defaultValue={cond}>
+                  {CONDITIONS.map((c) => (
+                    <option key={c} value={c}>
+                      {CONDITION_LABEL[c]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
             <Field label="Модель">
               <Select name="model" defaultValue={model ?? ""} required>
                 <option value="">Выберите модель</option>
@@ -65,26 +97,30 @@ export default async function EstimatePage({ searchParams }: { searchParams: Pro
                 ))}
               </Select>
             </Field>
-            <Field label="Память">
-              <Select name="mem" defaultValue={mem ?? ""} required>
-                <option value="">Выберите</option>
-                {MEMORY_OPTIONS.map((g) => (
-                  <option key={g} value={g}>
-                    {memoryLabel(g)}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <fieldset className="space-y-1">
-              <legend className="mb-1 text-sm font-medium text-slate-700">Что не так с техникой</legend>
-              {CONDITIONS.map((c) => (
-                <label key={c.key} className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" name={c.key} value="1" defaultChecked={!!sp[c.key]} />
-                  {c.label} <span className="text-xs text-slate-500">−{c.pct}%</span>
-                </label>
-              ))}
-            </fieldset>
-            <button className={btn()}>Оценить</button>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Память">
+                <Select name="mem" defaultValue={mem ?? ""} required>
+                  <option value="">Выберите</option>
+                  {MEMORY_OPTIONS.map((g) => (
+                    <option key={g} value={g}>
+                      {memoryLabel(g)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Цвет">
+                <Select name="color" defaultValue={color ?? ""}>
+                  <option value="">Любой</option>
+                  {COLORS.map((c) => (
+                    <option key={c.label}>{c.label}</option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+            <p className="text-xs text-slate-500">
+              {CONDITION_LABEL[cond]}: {CONDITION_HINT[cond]}.
+            </p>
+            <button className={btn()}>Узнать цену</button>
           </form>
         </Card>
 
@@ -92,59 +128,100 @@ export default async function EstimatePage({ searchParams }: { searchParams: Pro
           {!est && (
             <Card>
               <p className="text-sm text-slate-600">
-                Выберите модель и память — CRM посчитает среднюю цену на рынке за последние {MARKET_DAYS} дней и сколько предложить продавцу, чтобы заработать{" "}
-                {rub(margin)}. Или нажмите на клетку в таблице ниже.
+                Укажите параметры, чтобы увидеть оценку. CRM покажет, по какой цене продают такие же телефоны, и сколько предложить продавцу, чтобы заработать {rub(margin)}.
+                Или нажмите на клетку в таблице ниже.
               </p>
             </Card>
           )}
           {est && model && mem && (
-            <Card title={`${model} ${memoryLabel(mem)}`}>
-              {market ? (
-                <>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <Stat label="Предложить продавцу" value={<span className="text-green-700">{rub(offer)}</span>} sub={`заработаем ~${rub(margin)}`} />
-                    <Stat label="Средняя цена рынка" value={rub(market.median)} sub={source} />
-                    <Stat label="Обычно продают за" value={`${rub(market.low)} – ${rub(market.high)}`} sub={`${market.count} объявл.${market.count < MIN_COUNT ? " · мало данных" : ""}`} />
+            <Card>
+              <div className="flex flex-col gap-4 sm:flex-row">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm text-slate-500">
+                    {model} {memoryLabel(mem)}
+                    {color ? `, ${color}` : ""} · {CONDITION_LABEL[cond]}
                   </div>
-                  {deductPct > 0 && (
-                    <p className="mt-3 text-sm text-red-700">
-                      С учётом состояния ({picked.map((c) => c.label.toLowerCase()).join(", ")}) цена продажи ~{rub(marketAdj)}, это −{deductPct}%.
+                  {market ? (
+                    <>
+                      <div className="mt-1 text-2xl font-semibold">
+                        Рыночная цена: {rub(market.low)} — {rub(market.high)}
+                      </div>
+                      <p className="mt-1 text-sm text-slate-600">
+                        {est.picked.derived
+                          ? `По состоянию «${CONDITION_LABEL[cond]}» объявлений мало, поэтому цена пересчитана от других состояний.`
+                          : `Рассчитана по ${market.count} объявл. за ${ESTIMATE_DAYS} дней${est.byColor ? `, только ${color}` : ""}.`}
+                        {color && !est.byColor && " Цвет не учтён: таких объявлений пока мало."}
+                      </p>
+                      <div className="mt-3 inline-block rounded-lg bg-green-50 px-4 py-2">
+                        <div className="text-xs text-green-700">Предложить продавцу</div>
+                        <div className="text-2xl font-semibold text-green-700">{rub(offer)}</div>
+                        <div className="text-xs text-green-700">средняя {rub(market.median)} минус {rub(margin)} заработка</div>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-sm text-slate-600">
+                      По этой модели пока нет объявлений. Добавьте источники во вкладке «Источники» или подключите Авито.
                     </p>
                   )}
-                </>
-              ) : (
-                <p className="text-sm text-slate-600">По этой модели пока нет объявлений без дефектов. Добавьте источники в «Источниках» или подключите Авито.</p>
-              )}
-              <div className="mt-4 grid gap-2 text-xs text-slate-500 sm:grid-cols-3">
-                <div>Собранные объявления: {est.listings ? `~${rub(est.listings.median)} (${est.listings.count})` : "нет данных"}</div>
-                <div>Авито сейчас: {est.avito.stats ? `~${rub(est.avito.stats.median)} (${est.avito.stats.count})` : (est.avito.error ?? "нет данных")}</div>
-                <div>Ваши продажи: {est.ownSales ? `~${rub(est.ownSales.median)} (${est.ownSales.count})` : "ещё не продавали"}</div>
+                  <p className="mt-3 text-xs text-slate-500">
+                    Собранных объявлений: {est.counts.listings} · Авито сейчас: {est.avitoError ?? `${est.counts.avito} объявл.`}
+                    {est.ownSales && ` · ваши продажи: ~${rub(est.ownSales.median)} (${est.ownSales.count})`}
+                  </p>
+                </div>
+                {est.example && (
+                  <Link href={`/market/search/${est.example.id}`} className="block w-full shrink-0 rounded-lg border border-slate-200 p-3 hover:bg-slate-50 sm:w-56">
+                    {est.example.photoUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={est.example.photoUrl} alt="" className="mb-2 h-32 w-full rounded-md object-cover" referrerPolicy="no-referrer" />
+                    )}
+                    <div className="text-xs text-slate-500">Похожее объявление</div>
+                    <div className="truncate text-sm font-medium">{est.example.title}</div>
+                    <div className="font-semibold">{rub(est.example.price)}</div>
+                    <div className="mt-1">
+                      <DeviceChips d={est.example} />
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">{dt(est.example.postedAt ?? est.example.createdAt)}</div>
+                  </Link>
+                )}
+              </div>
+            </Card>
+          )}
+          {est && model && mem && total > 0 && (
+            <Card title="Цена по состояниям">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[480px] text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-slate-500">
+                      <th className="px-2 py-1 font-medium">Состояние</th>
+                      <th className="px-2 py-1 font-medium">Рыночная цена</th>
+                      <th className="px-2 py-1 font-medium">Предложить</th>
+                      <th className="px-2 py-1 font-medium">Объявлений</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {CONDITIONS.map((c) => {
+                      const s = est.byCondition[c];
+                      return (
+                        <tr key={c} className={`border-t border-slate-100 ${c === cond ? "bg-blue-50" : ""}`}>
+                          <td className="px-2 py-1.5">
+                            <Link href={link({ cond: c })} className="font-medium hover:underline">
+                              {CONDITION_LABEL[c]}
+                            </Link>
+                          </td>
+                          <td className="px-2 py-1.5">{s.stats ? `${rub(s.stats.low)} — ${rub(s.stats.high)}` : "—"}</td>
+                          <td className="px-2 py-1.5 font-semibold text-green-700">{s.stats ? rub(suggestedBuyPrice(s.stats.median, margin)) : "—"}</td>
+                          <td className="px-2 py-1.5 text-slate-500">{s.derived ? `${s.stats?.count ?? 0} · пересчитано` : (s.stats?.count ?? 0)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </Card>
           )}
           {est && model && mem && (
             <Card title="Цена за 30 дней">
               <PriceLine points={history} format={rub} />
-            </Card>
-          )}
-          {fresh.length > 0 && (
-            <Card title="Свежие объявления">
-              <ul className="divide-y divide-slate-100">
-                {fresh.map((l) => (
-                  <li key={l.id} className="flex items-center justify-between gap-3 py-2">
-                    <div className="min-w-0">
-                      <Link href={`/market/search/${l.id}`} className="block truncate text-sm font-medium hover:underline">
-                        {l.title}
-                      </Link>
-                      <div className="mt-1">
-                        <DeviceChips d={l} />
-                      </div>
-                      <div className="mt-0.5 text-xs text-slate-500">{dt(l.postedAt ?? l.createdAt)}</div>
-                    </div>
-                    <div className="shrink-0 font-semibold">{rub(l.price)}</div>
-                  </li>
-                ))}
-              </ul>
             </Card>
           )}
         </div>
@@ -177,7 +254,7 @@ export default async function EstimatePage({ searchParams }: { searchParams: Pro
                         <td key={g} className="px-1 py-1">
                           {c ? (
                             <Link
-                              href={`/market?model=${encodeURIComponent(m)}&mem=${g}`}
+                              href={link({ model: m, mem: String(g) })}
                               className={`block rounded-md px-2 py-1 hover:bg-slate-100 ${active ? "ring-2 ring-blue-500" : ""}`}
                               title={`Рынок ~${rub(c.median)}, обычно ${rub(c.low)} – ${rub(c.high)}, ${c.count} объявл.`}
                             >

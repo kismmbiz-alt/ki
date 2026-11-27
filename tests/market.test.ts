@@ -5,7 +5,7 @@ import { createCompany } from "@/lib/domain/company";
 import { bonusFor, buybackResults, buyListing, ingestPosts, takeListing } from "@/lib/domain/buyback";
 import { createSale } from "@/lib/domain/sales";
 import { parseDevice } from "@/lib/market/device";
-import { marketTable, priceStats, snapshotCompany, suggestedBuyPrice } from "@/lib/market/prices";
+import { estimate, marketTable, priceStats, pricesByCondition, snapshotCompany, suggestedBuyPrice } from "@/lib/market/prices";
 import { parseAvitoDate, parseAvitoHtml, parseAvitoUrl } from "@/lib/collectors/avito";
 
 const uniq = () => Math.random().toString(36).slice(2, 8);
@@ -33,6 +33,36 @@ describe("распознавание техники в объявлении", ()
   it("Pro Max не путается с Pro, 1 ТБ распознаётся", () => {
     expect(parseDevice("iphone 15 pro max 1tb").model).toBe("iPhone 15 Pro Max");
     expect(parseDevice("iphone 15 pro max 1tb").memoryGb).toBe(1024);
+  });
+});
+
+describe("состояние и цвет, как в оценке Авито", () => {
+  it("определяет состояние по тексту", () => {
+    expect(parseDevice("iPhone 13 128 запечатанный, не активирован").condition).toBe("NEW");
+    expect(parseDevice("iPhone 13 128, как новый, идеал").condition).toBe("EXCELLENT");
+    expect(parseDevice("iPhone 13 128, есть потертости").condition).toBe("GOOD");
+    expect(parseDevice("iPhone 13 128").condition).toBe("GOOD");
+    expect(parseDevice("iPhone 13 128, скол на рамке").condition).toBe("FAIR");
+    expect(parseDevice("iPhone 13 128 менялся экран, идеал").condition).toBe("FAIR");
+    expect(parseDevice("iPhone 13 128 разбит экран").condition).toBe("REPAIR");
+    expect(parseDevice("iPhone 13 на запчасти").condition).toBe("REPAIR");
+    expect(parseDevice("iPhone 13, новый аккумулятор, идеал").condition).toBe("EXCELLENT");
+  });
+
+  it("определяет цвет и не путает похожие слова", () => {
+    expect(parseDevice("iPhone 13 Pro Sierra Blue").color).toBe("голубой");
+    expect(parseDevice("айфон 13 про графит").color).toBe("серый");
+    expect(parseDevice("iPhone 12 черный").color).toBe("черный");
+    expect(parseDevice("iPhone 12, серийный номер чистый, сервис").color).toBeNull();
+  });
+
+  it("цена по состояниям: где мало объявлений — пересчёт от соседних", () => {
+    const rows = [30_000, 31_000, 32_000, 33_000].map((p) => ({ price: p * 100, condition: "GOOD" as const, color: null }));
+    const r = pricesByCondition(rows);
+    expect(r.GOOD).toMatchObject({ derived: false, stats: { median: 3_150_000, count: 4 } });
+    expect(r.REPAIR.derived).toBe(true);
+    expect(r.REPAIR.stats!.median).toBe(1_730_000); // 31 500 × 0.55
+    expect(r.EXCELLENT.stats!.median).toBeGreaterThan(r.GOOD.stats!.median);
   });
 });
 
@@ -64,6 +94,11 @@ describe("цена рынка", () => {
     expect(cells[0]).toMatchObject({ model: "iPhone 12", memoryGb: 128, median: 3_200_000, count: 3 });
     expect(await marketTable(tb)).toHaveLength(0);
     expect(await snapshotCompany(a.company.id)).toBe(1);
+    const est = await estimate(ta, "iPhone 12", 128, { condition: "REPAIR" });
+    expect(est.counts.listings).toBe(4);
+    expect(est.picked).toMatchObject({ derived: true });
+    expect(est.byCondition.GOOD.stats!.median).toBe(3_200_000);
+    expect(est.example?.title).toMatch(/разбит/);
     expect(await ta.db.marketSnapshot.count()).toBe(1);
     expect(await tb.db.marketSnapshot.count()).toBe(0);
   });

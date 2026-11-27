@@ -574,6 +574,8 @@ model Listing {
   kit          String[]      @default([])
   defects      String[]      @default([])
   replacements String[]      @default([])
+  condition    String? // NEW, EXCELLENT, GOOD, FAIR, REPAIR — как в оценке Авито
+  color        String?
   parsedAt     DateTime?
   bonus        Int           @default(0) // фиксированный бонус, начисленный при выкупе, коп.
   createdAt    DateTime      @default(now())

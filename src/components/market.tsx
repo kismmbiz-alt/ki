@@ -1,5 +1,5 @@
 import { rub } from "@/lib/money";
-import { memoryLabel } from "@/lib/market/device";
+import { CONDITION_LABEL, isCondition, memoryLabel } from "@/lib/market/device";
 import { suggestedBuyPrice, type Stats } from "@/lib/market/prices";
 
 type Device = {
@@ -9,7 +9,17 @@ type Device = {
   kit: string[];
   defects: string[];
   replacements: string[];
+  condition?: string | null;
+  color?: string | null;
 };
+
+const COND_CLS = {
+  NEW: "bg-green-50 text-green-700",
+  EXCELLENT: "bg-green-50 text-green-700",
+  GOOD: "bg-slate-100 text-slate-800",
+  FAIR: "bg-amber-50 text-amber-700",
+  REPAIR: "bg-red-50 text-red-700",
+} as const;
 
 const chip = "inline-flex items-center rounded-md px-1.5 py-0.5 text-xs font-medium";
 
@@ -20,6 +30,8 @@ export function DeviceChips({ d }: { d: Device }) {
     <div className="flex flex-wrap gap-1">
       <span className={`${chip} bg-slate-100 text-slate-800`}>{d.model ?? "модель не распознана"}</span>
       {d.memoryGb && <span className={`${chip} bg-slate-100 text-slate-800`}>{memoryLabel(d.memoryGb)}</span>}
+      {d.color && <span className={`${chip} bg-slate-100 text-slate-800`}>{d.color}</span>}
+      {isCondition(d.condition) && <span className={`${chip} ${COND_CLS[d.condition]}`}>{CONDITION_LABEL[d.condition]}</span>}
       {d.batteryPct !== null && (
         <span className={`${chip} ${okBattery ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>АКБ {d.batteryPct}%</span>
       )}

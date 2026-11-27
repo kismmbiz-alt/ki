@@ -10,7 +10,7 @@ import { placesFor } from "@/lib/domain/places";
 import { CashboxField, WarehouseField } from "@/components/place-fields";
 import { buyAction, rejectAction, releaseAction, takeAction } from "../../actions";
 import { BuyVerdict, DeviceChips } from "@/components/market";
-import { memoryLabel } from "@/lib/market/device";
+import { CONDITION_LABEL, isCondition, memoryLabel } from "@/lib/market/device";
 import { estimate, suggestedBuyPrice } from "@/lib/market/prices";
 
 const STATUS_COLOR = { NEW: "#2563eb", IN_WORK: "#d97706", BOUGHT: "#16a34a", REJECTED: "#64748b" };
@@ -24,8 +24,8 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   const mine = l.status === "IN_WORK" && l.assigneeId === ctx.user.id;
   const canAct = mine || (admin && l.status !== "BOUGHT");
   const company = ctx.company;
-  const est = l.model && l.memoryGb ? await estimate({ db: ctx.db, companyId: ctx.company.id }, l.model, l.memoryGb, company.avitoRegion) : null;
-  const market = est ? (est.listings ?? est.avito.stats ?? est.ownSales) : null;
+  const est = l.model && l.memoryGb ? await estimate({ db: ctx.db, companyId: ctx.company.id }, l.model, l.memoryGb, { region: company.avitoRegion, condition: isCondition(l.condition) ? l.condition : "GOOD", color: l.color }) : null;
+  const market = est?.picked.stats ?? null;
   const offer = market ? suggestedBuyPrice(market.median, company.marketMargin) : null;
   const hasIssues = l.defects.length + l.replacements.length > 0;
   const { warehouses, cashboxes } = await placesFor({ db: ctx.db, companyId: ctx.company.id }, ctx.location?.id);
@@ -61,12 +61,13 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
             <BuyVerdict market={market} margin={company.marketMargin} asked={l.price} hasIssues={hasIssues} />
             {market && (
               <p className="mt-2 text-xs text-slate-500">
-                Обычно продают за {rub(market.low)} – {rub(market.high)} ({market.count} объявл.)
+                Рыночная цена в состоянии «{CONDITION_LABEL[est!.condition]}»: {rub(market.low)} – {rub(market.high)}
+                {est!.picked.derived ? " (пересчитано от других состояний)" : ` (${market.count} объявл.)`}
               </p>
             )}
             {l.model && l.memoryGb && (
-              <Link href={`/market?model=${encodeURIComponent(l.model)}&mem=${l.memoryGb}`} className="mt-2 inline-block text-sm text-blue-600 hover:underline">
-                График цены этой модели →
+              <Link href={`/market?model=${encodeURIComponent(l.model)}&mem=${l.memoryGb}&cond=${l.condition ?? "GOOD"}${l.color ? `&color=${encodeURIComponent(l.color)}` : ""}`} className="mt-2 inline-block text-sm text-blue-600 hover:underline">
+                Подробная оценка и график →
               </Link>
             )}
           </Card>
