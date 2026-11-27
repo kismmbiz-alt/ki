@@ -3,6 +3,8 @@ import { prisma, tenant } from "../db";
 import { ingestPosts, KEEP_DAYS } from "../domain/buyback";
 import { fetchTelegram } from "./telegram";
 import { fetchVk } from "./vk";
+import { fetchAvito } from "./avito";
+import { backfillParsed, snapshotAllCompanies } from "../market/prices";
 import type { FoundPost } from "./text";
 
 /** Как часто проверять один источник. */
@@ -12,11 +14,12 @@ async function fetchPosts(s: Pick<ListingSource, "kind" | "url">): Promise<Found
   try {
     if (s.kind === "VK") return await fetchVk(s.url);
     if (s.kind === "TELEGRAM") return await fetchTelegram(s.url);
+    if (s.kind === "AVITO") return await fetchAvito(s.url);
   } catch (e) {
     // сетевые ошибки fetch приходят без понятного текста
     const name = e instanceof Error ? e.name : "";
     if (name === "TimeoutError") throw new Error("Сайт не ответил за 20 секунд, попробуем позже");
-    if (e instanceof TypeError) throw new Error(`Нет связи с ${s.kind === "VK" ? "api.vk.com" : "t.me"} с этого сервера`);
+    if (e instanceof TypeError) throw new Error(`Нет связи с ${s.kind === "VK" ? "api.vk.com" : s.kind === "AVITO" ? "Авито (проверьте прокси)" : "t.me"} с этого сервера`);
     throw e;
   }
   throw new Error("Этот источник подключим на следующем этапе");
@@ -44,7 +47,7 @@ export async function collectSource(source: ListingSource) {
 export async function collectDue(limit = 20) {
   const due = new Date(Date.now() - CHECK_EVERY_MIN * 60_000);
   const sources = await prisma.listingSource.findMany({
-    where: { isActive: true, kind: { in: ["VK", "TELEGRAM"] }, OR: [{ lastCheckedAt: null }, { lastCheckedAt: { lt: due } }] },
+    where: { isActive: true, kind: { in: ["VK", "TELEGRAM", "AVITO"] }, OR: [{ lastCheckedAt: null }, { lastCheckedAt: { lt: due } }] },
     orderBy: { lastCheckedAt: { sort: "asc", nulls: "first" } },
     take: limit,
   });
@@ -75,11 +78,17 @@ export function startCollector() {
   started = true;
   let busy = false;
   let lastCleanup = 0;
+  let lastSnapshot = 0;
   const tick = async () => {
     if (busy) return;
     busy = true;
     try {
       await collectDue();
+      await backfillParsed();
+      if (Date.now() - lastSnapshot > 36e5) {
+        await snapshotAllCompanies();
+        lastSnapshot = Date.now();
+      }
       if (Date.now() - lastCleanup > 864e5) {
         await cleanupOld();
         lastCleanup = Date.now();

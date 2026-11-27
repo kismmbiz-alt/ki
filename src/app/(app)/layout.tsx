@@ -28,7 +28,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     { href: "/dashboard", label: "Главная", icon: <House {...I} />, show: true },
     { href: "/orders", label: "Заказы", icon: <Wrench {...I} />, show: true },
     { href: "/clients", label: "Клиенты", icon: <Users {...I} />, show: true },
-    { href: "/buyback", label: "Скупка", icon: <HandCoins {...I} />, show: can(user, "buyback") },
+    { href: "/market", label: "Рынок", icon: <HandCoins {...I} />, show: can(user, "buyback") || can(user, "marketSummary") },
     { href: "/sales", label: "Продажи", icon: <ShoppingCart {...I} />, show: can(user, "sales") },
     { href: "/stock", label: "Склад", icon: <Package {...I} />, show: can(user, "stock") },
     { href: can(user, "cash") ? "/cash" : "/cash/journal", label: "Финансы", icon: <Wallet {...I} />, show: can(user, "cash") || can(user, "journal") },

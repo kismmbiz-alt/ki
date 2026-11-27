@@ -3,7 +3,7 @@ import { Card, dt, Field, Input, PageHeader, Select } from "@/components/ui";
 import { Form, Submit } from "@/components/form";
 import { SOURCE_KIND_LABEL } from "@/lib/domain/buyback";
 import { CHECK_EVERY_MIN } from "@/lib/collectors";
-import { BuybackTabs } from "../tabs";
+import { MarketTabs } from "../tabs";
 import { checkSourceAction, createSourceAction, deleteSourceAction, updateSourceAction } from "../actions";
 
 export default async function SourcesPage() {
@@ -13,11 +13,12 @@ export default async function SourcesPage() {
     include: { _count: { select: { listings: true } } },
   });
   const noVkKey = !process.env.VK_SERVICE_TOKEN;
+  const noProxy = !process.env.AVITO_PROXY;
 
   return (
     <>
-      <PageHeader title="Скупка техники" />
-      <BuybackTabs admin />
+      <PageHeader title="Рынок · источники объявлений" />
+      <MarketTabs user={ctx.user} />
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-3 lg:col-span-2">
           <p className="text-sm text-slate-600">
@@ -27,6 +28,11 @@ export default async function SourcesPage() {
           {noVkKey && (
             <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
               Для групп ВКонтакте на сервере нужен сервисный ключ ВК (VK_SERVICE_TOKEN). Как его получить — в инструкции. Telegram работает без ключа.
+            </p>
+          )}
+          {noProxy && (
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Для Авито на сервере нужен мобильный прокси (AVITO_PROXY). Без него Авито не отдаёт объявления.
             </p>
           )}
           {sources.length === 0 && (
@@ -95,7 +101,7 @@ export default async function SourcesPage() {
         </div>
         <Card title="Новый источник">
           <Form action={createSourceAction} className="space-y-3">
-            <Field label="Ссылка на группу ВК или Telegram-канал *" hint="Авито и Юла — на следующем этапе">
+            <Field label="Ссылка на группу ВК, Telegram-канал или поиск Авито *" hint="для Авито: найдите на сайте нужное (например «iphone» в вашем городе) и скопируйте адрес страницы">
               <Input name="url" required placeholder="https://vk.com/baraholka_spb" />
             </Field>
             <Field label="Название">

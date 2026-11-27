@@ -79,6 +79,10 @@ model Company {
   orderSeq     Int      @default(0)
   saleSeq      Int      @default(0)
   docSeq       Int      @default(0)
+  marketMargin Int      @default(500000) // сколько хотим заработать на выкупе, коп.
+  bonusFixed   Int      @default(0) // бонус сотруднику за каждый выкуп, коп.
+  bonusPercent Int      @default(0) // бонус в % от прибыли после продажи выкупленного
+  avitoRegion  String   @default("rossiya") // регион Авито для оценки: часть ссылки avito.ru/<регион>
   createdAt    DateTime @default(now())
 
   locations      Location[]
@@ -109,6 +113,7 @@ model Company {
   warehouses     Warehouse[]
   cashboxes      Cashbox[]
   actionLogs     ActionLog[]
+  marketPrices   MarketSnapshot[]
 }
 
 model Location {
@@ -562,6 +567,15 @@ model Listing {
   buyPrice     Int? // за сколько выкупили, коп.
   productId    String? // товар на складе, созданный при выкупе
   rejectReason String?
+  // что CRM поняла из текста объявления
+  model        String?
+  memoryGb     Int?
+  batteryPct   Int?
+  kit          String[]      @default([])
+  defects      String[]      @default([])
+  replacements String[]      @default([])
+  parsedAt     DateTime?
+  bonus        Int           @default(0) // фиксированный бонус, начисленный при выкупе, коп.
   createdAt    DateTime      @default(now())
 
   company  Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -573,6 +587,25 @@ model Listing {
   @@unique([companyId, url])
   @@index([companyId, status, createdAt])
   @@index([companyId, assigneeId])
+  @@index([companyId, model, memoryGb])
+}
+
+// Снимок рынка за день по модели и памяти: из него строятся таблица «Рынок» и графики.
+model MarketSnapshot {
+  id        String   @id @default(cuid())
+  companyId String
+  model     String
+  memoryGb  Int
+  day       DateTime @db.Date
+  median    Int // коп.
+  low       Int // нижняя четверть цен, коп.
+  high      Int // верхняя четверть цен, коп.
+  count     Int
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, model, memoryGb, day])
+  @@index([companyId, day])
 }
 
 // ---------- Склад: группы, поставщики, документы ----------

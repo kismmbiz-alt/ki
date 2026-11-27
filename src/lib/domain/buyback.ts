@@ -1,9 +1,16 @@
 import type { ListingSourceKind, PayMethod } from "@prisma/client";
-import type { Tenant } from "../db";
+import { prisma, type Tenant } from "../db";
 import { moveStockTx } from "./stock";
 import { resolveCashbox, resolveWarehouse } from "./places";
 import { logAction } from "./log";
 import { extractPrice, makeTitle, matchesQuery, type FoundPost } from "../collectors/text";
+import { parseDevice } from "../market/device";
+
+/** Поля объявления, которые CRM понимает из текста: модель, память, АКБ, комплект, дефекты, замены. */
+export function deviceFields(title: string, text: string) {
+  const d = parseDevice(`${title}\n${text}`);
+  return { ...d, parsedAt: new Date() };
+}
 
 export const SOURCE_KIND_LABEL: Record<ListingSourceKind, string> = {
   VK: "ВКонтакте",
@@ -11,8 +18,8 @@ export const SOURCE_KIND_LABEL: Record<ListingSourceKind, string> = {
   AVITO: "Авито",
   YOULA: "Юла",
 };
-/** Какие источники уже умеем читать. Авито и Юла — следующий этап (нужен прокси). */
-export const SUPPORTED_KINDS: ListingSourceKind[] = ["VK", "TELEGRAM"];
+/** Какие источники уже умеем читать. Юла — позже. Авито работает через прокси (AVITO_PROXY). */
+export const SUPPORTED_KINDS: ListingSourceKind[] = ["VK", "TELEGRAM", "AVITO"];
 
 export const LISTING_STATUS_LABEL = { NEW: "Новое", IN_WORK: "В работе", BOUGHT: "Выкуплено", REJECTED: "Отказ" } as const;
 
@@ -38,11 +45,12 @@ export async function ingestPosts(
       companyId,
       sourceId: source.id,
       url: p.url,
-      title: makeTitle(p.text),
+      title: p.title || makeTitle(p.text),
       text: p.text.slice(0, 5000),
-      price: extractPrice(p.text),
+      price: p.price ?? extractPrice(p.text),
       photoUrl: p.photoUrl,
       postedAt: p.postedAt,
+      ...deviceFields(p.title ?? "", p.text),
     }));
   if (!rows.length) return 0;
   const res = await db.listing.createMany({ data: rows, skipDuplicates: true });
@@ -59,11 +67,13 @@ export async function addManualListing(
   const exists = await db.listing.findFirst({ where: { url } });
   if (exists) throw new Error("Это объявление уже есть в ленте");
   const text = l.text?.trim() ?? "";
+  const title = l.title?.trim() || makeTitle(text || url);
   return db.listing.create({
     data: {
       companyId,
       url,
-      title: l.title?.trim() || makeTitle(text || url),
+      title,
+      ...deviceFields(title, text),
       text,
       price: l.price ?? (text ? extractPrice(text) : null),
       ...(l.take ? { status: "IN_WORK" as const, assigneeId: l.userId, takenAt: new Date() } : {}),
@@ -127,6 +137,8 @@ export async function buyListing(
     const product = await tx.product.create({
       data: { companyId, name, price: b.salePrice ?? 0, cost: b.buyPrice },
     });
+    // фиксированный бонус запоминаем в момент выкупа: если потом поменяют настройку, начисленное не изменится
+    const { bonusFixed } = await prisma.company.findUniqueOrThrow({ where: { id: companyId }, select: { bonusFixed: true } });
     const warehouseId = await resolveWarehouse(tx, b.locationId, b.warehouseId);
     const cashboxId = await resolveCashbox(tx, b.locationId, b.cashboxId);
     await moveStockTx(tx, {
@@ -150,25 +162,59 @@ export async function buyListing(
         comment: `${name} · ${l.url}`.slice(0, 300),
       },
     });
-    await logAction(tx, { companyId, userId: b.actor.userId, locationId: b.locationId, cashboxId, kind: "buyback", text: `Выкуп: ${name}`, amount: -b.buyPrice, link: `/buyback/${l.id}` });
-    return tx.listing.update({ where: { id: l.id }, data: { productId: product.id } });
+    await logAction(tx, { companyId, userId: b.actor.userId, locationId: b.locationId, cashboxId, kind: "buyback", text: `Выкуп: ${name}`, amount: -b.buyPrice, link: `/market/search/${l.id}` });
+    return tx.listing.update({ where: { id: l.id }, data: { productId: product.id, bonus: bonusFixed } });
   });
 }
 
-export type RatingRow = { userId: string; name: string; bought: number; spent: number; sold: number; profit: number; inWork: number };
+export type RatingRow = {
+  userId: string;
+  name: string;
+  bought: number;
+  spent: number;
+  sold: number;
+  revenue: number;
+  profit: number;
+  bonus: number;
+  inWork: number;
+};
 
-/** Рейтинг выкупа за период: сколько штук, на какую сумму, и сколько заработали на перепродаже. */
-export async function buybackRating({ db }: Tenant, from: Date, to: Date): Promise<RatingRow[]> {
+export type ResultItem = {
+  id: string;
+  title: string;
+  model: string | null;
+  memoryGb: number | null;
+  userId: string;
+  userName: string;
+  boughtAt: Date;
+  buyPrice: number;
+  sold: boolean;
+  revenue: number;
+  profit: number;
+  bonus: number;
+};
+
+/** Бонус за выкуп: фиксированная часть (запомнена при выкупе) + процент от прибыли после продажи. */
+export const bonusFor = (fixed: number, profit: number, percent: number) => fixed + Math.max(0, Math.round((profit * percent) / 100));
+
+/**
+ * Результаты выкупа за период: каждая выкупленная техника, кто и когда её выкупил,
+ * за сколько продали, прибыль и начисленный бонус; итоги по сотрудникам и по дням.
+ */
+export async function buybackResults({ db, companyId }: Tenant, from: Date, to: Date) {
+  const { bonusPercent } = await prisma.company.findUniqueOrThrow({ where: { id: companyId }, select: { bonusPercent: true } });
   const bought = await db.listing.findMany({
     where: { status: "BOUGHT", boughtAt: { gte: from, lt: to } },
     include: { assignee: true },
+    orderBy: { boughtAt: "desc" },
   });
   const productIds = bought.map((l) => l.productId).filter((x): x is string => !!x);
   const saleItems = productIds.length ? await db.saleItem.findMany({ where: { productId: { in: productIds } } }) : [];
-  const byProduct = new Map<string, { qty: number; profit: number }>();
+  const byProduct = new Map<string, { qty: number; revenue: number; profit: number }>();
   for (const s of saleItems) {
-    const cur = byProduct.get(s.productId) ?? { qty: 0, profit: 0 };
+    const cur = byProduct.get(s.productId) ?? { qty: 0, revenue: 0, profit: 0 };
     cur.qty += s.qty;
+    cur.revenue += s.qty * s.price;
     cur.profit += s.qty * (s.price - s.cost);
     byProduct.set(s.productId, cur);
   }
@@ -178,21 +224,52 @@ export async function buybackRating({ db }: Tenant, from: Date, to: Date): Promi
   const rows = new Map<string, RatingRow>();
   const row = (id: string, name: string) => {
     let r = rows.get(id);
-    if (!r) rows.set(id, (r = { userId: id, name, bought: 0, spent: 0, sold: 0, profit: 0, inWork: 0 }));
+    if (!r) rows.set(id, (r = { userId: id, name, bought: 0, spent: 0, sold: 0, revenue: 0, profit: 0, bonus: 0, inWork: 0 }));
     return r;
   };
   for (const u of users) row(u.id, u.name);
+
+  const items: ResultItem[] = [];
   for (const l of bought) {
-    if (!l.assigneeId || !l.assignee) continue;
+    if (!l.assigneeId || !l.assignee || !l.boughtAt) continue;
+    const s = l.productId ? byProduct.get(l.productId) : undefined;
+    const profit = s?.profit ?? 0;
+    const bonus = bonusFor(l.bonus, profit, bonusPercent);
     const r = row(l.assigneeId, l.assignee.name);
     r.bought += 1;
     r.spent += l.buyPrice ?? 0;
-    const s = l.productId ? byProduct.get(l.productId) : undefined;
+    r.bonus += bonus;
     if (s) {
-      r.sold += Math.min(s.qty, 1);
-      r.profit += s.profit;
+      r.sold += 1;
+      r.revenue += s.revenue;
+      r.profit += profit;
     }
+    items.push({
+      id: l.id,
+      title: l.title,
+      model: l.model,
+      memoryGb: l.memoryGb,
+      userId: l.assigneeId,
+      userName: l.assignee.name,
+      boughtAt: l.boughtAt,
+      buyPrice: l.buyPrice ?? 0,
+      sold: !!s,
+      revenue: s?.revenue ?? 0,
+      profit,
+      bonus,
+    });
   }
   for (const w of inWork) if (w.assigneeId && rows.has(w.assigneeId)) rows.get(w.assigneeId)!.inWork = w._count._all;
-  return [...rows.values()].sort((a, b) => b.bought - a.bought || b.profit - a.profit || a.name.localeCompare(b.name));
+  const employees = [...rows.values()].sort((a, b) => b.bought - a.bought || b.profit - a.profit || a.name.localeCompare(b.name));
+
+  const total = employees.reduce(
+    (t, r) => ({ bought: t.bought + r.bought, spent: t.spent + r.spent, sold: t.sold + r.sold, revenue: t.revenue + r.revenue, profit: t.profit + r.profit, bonus: t.bonus + r.bonus }),
+    { bought: 0, spent: 0, sold: 0, revenue: 0, profit: 0, bonus: 0 },
+  );
+  return { employees, items, total, bonusPercent };
+}
+
+/** Рейтинг выкупа за период (для совместимости): итоги по сотрудникам. */
+export async function buybackRating(t: Tenant, from: Date, to: Date): Promise<RatingRow[]> {
+  return (await buybackResults(t, from, to)).employees;
 }

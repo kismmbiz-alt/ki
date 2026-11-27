@@ -17,8 +17,9 @@ export const PERMS = [
   { key: "cashTransfer", group: "Финансы", label: "Переводить деньги между кассами" },
   { key: "reports", group: "Аналитика", label: "Отчёты и аналитика" },
   { key: "journal", group: "Аналитика", label: "Журнал действий сотрудников" },
-  { key: "buyback", group: "Скупка", label: "Лента объявлений и выкуп" },
-  { key: "buybackSources", group: "Скупка", label: "Настраивать источники объявлений" },
+  { key: "buyback", group: "Рынок", label: "Оценка, поиск объявлений, выкуп и результаты" },
+  { key: "buybackSources", group: "Рынок", label: "Настраивать источники объявлений, наценку и бонусы" },
+  { key: "marketSummary", group: "Рынок", label: "Сводка: сколько заработали и на что потратили" },
   { key: "settings", group: "Настройки", label: "Настройки, справочники, склады и кассы" },
   { key: "users", group: "Настройки", label: "Сотрудники и должности" },
 ] as const;

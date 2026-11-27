@@ -49,4 +49,4 @@ export function makeTitle(text: string): string {
 }
 
 /** Найденное объявление, общий вид для всех источников. */
-export type FoundPost = { url: string; text: string; postedAt: Date | null; photoUrl: string | null };
+export type FoundPost = { url: string; text: string; postedAt: Date | null; photoUrl: string | null; title?: string; price?: number | null };

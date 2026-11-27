@@ -33,6 +33,7 @@ export const TENANT_MODELS = new Set<string>([
   "CashShift",
   "ListingSource",
   "Listing",
+  "MarketSnapshot",
   "Position",
   "Cashbox",
   "Warehouse",

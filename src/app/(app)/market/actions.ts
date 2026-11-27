@@ -6,17 +6,19 @@ import type { ListingSourceKind, PayMethod } from "@prisma/client";
 import { can, requireLocation, requirePermission, type Ctx } from "@/lib/auth";
 import { opt, safe, str } from "@/lib/action";
 import { toKop } from "@/lib/money";
+import { prisma } from "@/lib/db";
 import { addManualListing, buyListing, rejectListing, releaseListing, SUPPORTED_KINDS, takeListing } from "@/lib/domain/buyback";
 import { collectSource } from "@/lib/collectors";
 import { parseVkUrl } from "@/lib/collectors/vk";
 import { parseTelegramUrl } from "@/lib/collectors/telegram";
+import { parseAvitoUrl } from "@/lib/collectors/avito";
 
 const t = (ctx: Ctx) => ({ db: ctx.db, companyId: ctx.company.id });
 const actor = (ctx: Ctx) => ({ userId: ctx.user.id, isAdmin: can(ctx.user, "buybackSources") });
 const refresh = (id?: string) => {
-  revalidatePath("/buyback");
-  revalidatePath("/buyback/rating");
-  if (id) revalidatePath(`/buyback/${id}`);
+  revalidatePath("/market/search");
+  revalidatePath("/market/results");
+  if (id) revalidatePath(`/market/search/${id}`);
 };
 
 export const takeAction = safe(async (fd) => {
@@ -76,7 +78,7 @@ export const addManualAction = safe(async (fd) => {
     take: str(fd, "take") === "1",
   });
   refresh();
-  redirect(`/buyback/${l.id}`);
+  redirect(`/market/search/${l.id}`);
 });
 
 // ---------- источники (владелец и администратор) ----------
@@ -89,10 +91,11 @@ function detectKind(url: string): ListingSourceKind {
   else if (/vk\.(com|ru)\//.test(u)) kind = "VK";
   else if (u.includes("avito.ru")) kind = "AVITO";
   else if (u.includes("youla.ru")) kind = "YOULA";
-  else throw new Error("Вставьте ссылку на группу ВКонтакте (vk.com/…) или Telegram-канал (t.me/…)");
-  if (!SUPPORTED_KINDS.includes(kind)) throw new Error("Авито и Юлу подключим на следующем этапе");
+  else throw new Error("Вставьте ссылку на группу ВКонтакте (vk.com/…), Telegram-канал (t.me/…) или поиск Авито (avito.ru/…)");
+  if (!SUPPORTED_KINDS.includes(kind)) throw new Error("Юлу подключим позже");
   if (kind === "VK") parseVkUrl(url);
   if (kind === "TELEGRAM") parseTelegramUrl(url);
+  if (kind === "AVITO") parseAvitoUrl(url);
   return kind;
 }
 
@@ -111,7 +114,7 @@ export const createSourceAction = safe(async (fd) => {
     },
   });
   const r = await collectSource(s);
-  revalidatePath("/buyback/sources");
+  revalidatePath("/market/sources");
   refresh();
   return r.error ? `Источник добавлен, но проверка не удалась: ${r.error}` : `Источник добавлен. Новых объявлений: ${r.found}`;
 });
@@ -128,7 +131,7 @@ export const updateSourceAction = safe(async (fd) => {
       isActive: str(fd, "isActive") === "1",
     },
   });
-  revalidatePath("/buyback/sources");
+  revalidatePath("/market/sources");
   return "Сохранено";
 });
 
@@ -136,7 +139,7 @@ export const checkSourceAction = safe(async (fd) => {
   const ctx = await requirePermission("buybackSources");
   const s = await ctx.db.listingSource.findUniqueOrThrow({ where: { id: str(fd, "id") } });
   const r = await collectSource(s);
-  revalidatePath("/buyback/sources");
+  revalidatePath("/market/sources");
   refresh();
   if (r.error) throw new Error(r.error);
   return `Проверено. Новых объявлений: ${r.found}`;
@@ -150,7 +153,23 @@ export const deleteSourceAction = safe(async (fd) => {
     await tx.listing.updateMany({ where: { sourceId: id }, data: { sourceId: null } });
     await tx.listingSource.delete({ where: { id } });
   });
-  revalidatePath("/buyback/sources");
+  revalidatePath("/market/sources");
   refresh();
   return opt(fd, "name") ? `Источник «${opt(fd, "name")}» удалён` : "Источник удалён";
+});
+
+// ---------- настройки рынка (владелец и администратор) ----------
+
+export const saveMarketSettingsAction = safe(async (fd) => {
+  const ctx = await requirePermission("buybackSources");
+  const margin = toKop(fd.get("marketMargin"));
+  const bonusFixed = toKop(fd.get("bonusFixed") || "0");
+  const bonusPercent = Math.round(Number(String(fd.get("bonusPercent") || "0").replace(",", ".")));
+  const region = str(fd, "avitoRegion").toLowerCase() || "rossiya";
+  if (margin < 0 || bonusFixed < 0) throw new Error("Суммы не могут быть отрицательными");
+  if (!Number.isFinite(bonusPercent) || bonusPercent < 0 || bonusPercent > 100) throw new Error("Процент — от 0 до 100");
+  if (!/^[a-z0-9_-]{2,40}$/.test(region)) throw new Error("Регион Авито — латиницей, как в адресе: moskva, sankt-peterburg, rossiya");
+  await prisma.company.update({ where: { id: ctx.company.id }, data: { marketMargin: margin, bonusFixed, bonusPercent, avitoRegion: region } });
+  revalidatePath("/market", "layout");
+  return "Настройки рынка сохранены";
 });
