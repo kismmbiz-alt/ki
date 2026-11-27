@@ -23,7 +23,7 @@ export default async function DocPage({ params, searchParams }: { params: Promis
   const responsible = d.responsibleId && d.responsibleId !== d.userId ? await db.user.findUnique({ where: { id: d.responsibleId } }) : user;
   const isReceipt = d.type === "RECEIPT";
   const debt = docDebt(d);
-  const payments = isReceipt ? await db.cashTransaction.findMany({ where: { locationId: d.locationId, comment: { startsWith: `Поступление №${d.number}` } }, include: { cashbox: true, user: true }, orderBy: { createdAt: "asc" } }) : [];
+  const payments = isReceipt ? await db.cashTransaction.findMany({ where: { OR: [{ stockDocId: d.id }, { stockDocId: null, locationId: d.locationId, comment: { startsWith: `Поступление №${d.number}` } }], deletedAt: null }, include: { cashbox: true, user: true }, orderBy: { createdAt: "asc" } }) : [];
   const canPay = isReceipt && debt > 0 && can(ctx.user, "stockDocs") && can(ctx.user, "cashOps");
   const { cashboxes } = canPay ? await placesFor({ db, companyId: company.id }, d.locationId, ctx.user) : { cashboxes: [] };
   return (

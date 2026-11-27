@@ -12,7 +12,20 @@ export const TRANSFER_CATEGORY = "Перевод между кассами";
 
 export async function addCashTransaction(
   { db, companyId }: Tenant,
-  t: { locationId: string; cashboxId?: string | null; userId: string; amount: number; method: PayMethod; category: string; comment?: string },
+  t: {
+    locationId: string;
+    cashboxId?: string | null;
+    userId: string;
+    amount: number;
+    method: PayMethod;
+    category: string;
+    comment?: string;
+    eventDate?: Date | null;
+    createdAt?: Date | null;
+    stockDocId?: string | null;
+    supplierId?: string | null;
+    recipientId?: string | null;
+  },
 ) {
   if (!t.amount) throw new Error("Укажите сумму");
   if (!t.category) throw new Error("Укажите статью");
@@ -28,8 +41,14 @@ export async function addCashTransaction(
         method: t.method,
         category: t.category,
         comment: t.comment || null,
+        eventDate: t.eventDate ?? null,
+        stockDocId: t.stockDocId ?? null,
+        supplierId: t.supplierId ?? null,
+        recipientId: t.recipientId ?? null,
+        ...(t.createdAt ? { createdAt: t.createdAt } : {}),
       },
     });
+    await tx.cashTxLog.create({ data: { companyId, txId: row.id, userId: t.userId, action: "CREATE", amount: t.amount, date: row.createdAt } });
     const box = await tx.cashbox.findUniqueOrThrow({ where: { id: cashboxId } });
     await logAction(tx, {
       companyId,
@@ -114,4 +133,50 @@ export async function cashBalance({ db }: Tenant, locationId: string) {
   const out: Record<PayMethod, number> = { CASH: 0, CARD: 0, TRANSFER: 0 };
   for (const r of rows) out[r.method] = r._sum.amount ?? 0;
   return out;
+}
+
+/** Операцию можно править и удалять, только если она не часть заказа, чека или перевода. */
+export const isEditableTx = (x: { orderId: string | null; saleId: string | null; transferId: string | null; stockDocId?: string | null; deletedAt: Date | null }) =>
+  !x.orderId && !x.saleId && !x.transferId && !x.stockDocId && !x.deletedAt;
+
+/** Правка кассовой операции как в LiveSklad: статья, даты, получатель, примечание, сумма. Пишется в историю. */
+export async function editCashTx(
+  { db, companyId }: Tenant,
+  id: string,
+  userId: string,
+  e: { category: string; comment: string | null; amount: number; createdAt: Date; eventDate: Date | null; recipientId: string | null; method: PayMethod },
+) {
+  if (!(e.amount > 0)) throw new Error("Укажите сумму");
+  if (!e.category) throw new Error("Укажите статью");
+  return db.$transaction(async (tx) => {
+    const x = await tx.cashTransaction.findUniqueOrThrow({ where: { id } });
+    if (!isEditableTx(x)) throw new Error("Эту операцию меняют через её документ: заказ, чек, поступление или перевод");
+    const amount = x.amount < 0 ? -e.amount : e.amount;
+    await tx.cashTransaction.update({
+      where: { id },
+      data: { category: e.category, comment: e.comment, amount, createdAt: e.createdAt, eventDate: e.eventDate, recipientId: e.recipientId, method: e.method, editedAt: new Date() },
+    });
+    const parts = [x.amount !== amount && `сумма ${x.amount / 100} → ${amount / 100}`, x.category !== e.category && `статья «${x.category}» → «${e.category}»`].filter(Boolean);
+    await tx.cashTxLog.create({ data: { companyId, txId: id, userId, action: "EDIT", amount, date: e.createdAt, note: parts.join(", ") || null } });
+    await logAction(tx, { companyId, userId, locationId: x.locationId, cashboxId: x.cashboxId, kind: "cash", text: `Изменена операция «${e.category}»${parts.length ? `: ${parts.join(", ")}` : ""}`, amount });
+  });
+}
+
+/** Удаление: операция остаётся в списке «Удалённые», сумма обнуляется, остаток кассы пересчитывается. */
+export async function deleteCashTx({ db, companyId }: Tenant, id: string, userId: string) {
+  return db.$transaction(async (tx) => {
+    const x = await tx.cashTransaction.findUniqueOrThrow({ where: { id } });
+    if (!isEditableTx(x)) throw new Error("Эту операцию отменяют через её документ: заказ, чек, поступление или перевод");
+    await tx.cashTransaction.update({ where: { id }, data: { deletedAt: new Date(), origAmount: x.amount, amount: 0 } });
+    await tx.salaryEntry.deleteMany({ where: { cashTxId: id } });
+    await tx.cashTxLog.create({ data: { companyId, txId: id, userId, action: "DELETE", amount: x.amount, date: x.createdAt } });
+    await logAction(tx, { companyId, userId, locationId: x.locationId, cashboxId: x.cashboxId, kind: "cash", text: `Удалена операция «${x.category}»`, amount: x.amount });
+  });
+}
+
+/** Статьи для выбора: стандартные плюс все, что уже встречались в кассах компании. */
+export async function cashCategories({ db }: Tenant) {
+  const used = await db.cashTransaction.groupBy({ by: ["category"], where: { transferId: null, orderId: null, saleId: null } });
+  const all = new Set([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, ...used.map((u) => u.category)]);
+  return [...all].filter((c) => c !== TRANSFER_CATEGORY).sort((a, b) => a.localeCompare(b, "ru"));
 }

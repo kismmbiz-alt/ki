@@ -311,14 +311,26 @@ export const addSalaryEntryAction = safe(async (fd) => {
     if (!locationId) throw new Error("Выберите точку");
     const tx = await addCashTransaction(
       { db: ctx.db, companyId: ctx.company.id },
-      { locationId, cashboxId: opt(fd, "cashboxId"), userId: ctx.user.id, amount: -amount, method: (str(fd, "method") || "CASH") as PayMethod, category: "Зарплата", comment: `Зарплата: ${emp.name}${comment ? `. ${comment}` : ""}` },
+      {
+        locationId,
+        cashboxId: opt(fd, "cashboxId"),
+        userId: ctx.user.id,
+        amount: -amount,
+        method: (str(fd, "method") || "CASH") as PayMethod,
+        category: "Выплата заработной платы",
+        comment: comment ?? undefined,
+        recipientId: emp.id,
+        eventDate: date,
+        // дата выдачи: «датой события» или своя
+        createdAt: dateOf(str(fd, "issueDate")) ?? (str(fd, "issueMode") === "event" ? date : null),
+      },
     );
     cashTxId = tx.id;
   }
-  await ctx.db.salaryEntry.create({ data: { companyId: ctx.company.id, userId, kind, amount, comment, date, cashTxId, createdById: ctx.user.id } });
+  await ctx.db.salaryEntry.create({ data: { companyId: ctx.company.id, userId, kind, amount, comment, date, cashTxId, createdById: ctx.user.id, locationId: opt(fd, "locationId") ?? ctx.location?.id ?? null } });
   const label = { BONUS: "Бонус", FINE: "Штраф", PAYOUT: "Выплата зарплаты" }[kind];
   await logAction(ctx.db, { companyId: ctx.company.id, userId: ctx.user.id, kind: "users", text: `${label} сотруднику «${emp.name}»${comment ? `: ${comment}` : ""}`, amount: kind === "BONUS" ? amount : -amount });
-  revalidatePath("/salary");
+  revalidatePath("/cash", "layout");
   return `${label} записан${kind === "PAYOUT" ? "а" : ""}`;
 });
 
@@ -327,7 +339,7 @@ export const deleteSalaryEntryAction = safe(async (fd) => {
   const e = await ctx.db.salaryEntry.findUniqueOrThrow({ where: { id: str(fd, "id") } });
   if (e.cashTxId) throw new Error("Выплата прошла через кассу — удалите операцию в кассе, если она ошибочная");
   await ctx.db.salaryEntry.delete({ where: { id: e.id } });
-  revalidatePath("/salary");
+  revalidatePath("/cash", "layout");
   return "Удалено";
 });
 

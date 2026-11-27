@@ -107,6 +107,9 @@ model Company {
   statusChains          Boolean   @default(false) // переходы только по цепочке
   barcodeSeq            Int       @default(0)
   // бонусная система: проценты в сотых долях (300 = 3%), суммы в копейках (1 балл = 1 ₽)
+  salaryPeriodType      String    @default("MONTH") // MONTH или WEEK — расчётный период зарплаты
+  salaryPeriodCount     Int       @default(1)
+  salaryPeriodStart     DateTime? // начало первого периода
   bonusEnabled          Boolean   @default(false)
   bonusSalePct          Int       @default(300) // начисление с продаж
   bonusOrderPct         Int       @default(300) // начисление с выданных заказов
@@ -157,6 +160,7 @@ model Company {
   printTemplates PrintTemplate[]
   salaryRules    SalaryRule[]
   salaryEntries  SalaryEntry[]
+  cashTxLogs     CashTxLog[]
   bonusTxs       BonusTx[]
 }
 
@@ -500,19 +504,26 @@ model StockMove {
 }
 
 model CashTransaction {
-  id         String    @id @default(cuid())
-  companyId  String
-  locationId String
-  cashboxId  String
-  transferId String? // общий id у двух половин перевода между кассами
-  userId     String?
-  orderId    String?
-  saleId     String?
-  amount     Int // + приход, - расход, коп.
-  method     PayMethod @default(CASH)
-  category   String // "Оплата заказа", "Продажа", "Аренда" ...
-  comment    String?
-  createdAt  DateTime  @default(now())
+  id          String    @id @default(cuid())
+  companyId   String
+  locationId  String
+  cashboxId   String
+  transferId  String? // общий id у двух половин перевода между кассами
+  userId      String?
+  orderId     String?
+  saleId      String?
+  amount      Int // + приход, - расход, коп.
+  method      PayMethod @default(CASH)
+  category    String // "Оплата заказа", "Продажа", "Аренда" ...
+  comment     String?
+  createdAt   DateTime  @default(now()) // дата выдачи: когда деньги ушли из кассы или пришли
+  eventDate   DateTime? // дата события: за какой день операция (для отчётов), пусто — как дата выдачи
+  stockDocId  String? // поступление или возврат поставщику, по которому платёж
+  supplierId  String? // получатель — поставщик
+  recipientId String? // получатель — сотрудник
+  editedAt    DateTime?
+  deletedAt   DateTime? // удалённая: сумма обнулена, исходная в origAmount
+  origAmount  Int?
 
   company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   location Location @relation(fields: [companyId, locationId], references: [companyId, id])
@@ -973,6 +984,23 @@ model SalaryRule {
 }
 
 // Ручные записи по зарплате: бонус, штраф, выплата.
+// История изменений кассовой операции: создание, правка, удаление.
+model CashTxLog {
+  id        String   @id @default(cuid())
+  companyId String
+  txId      String
+  userId    String?
+  action    String // CREATE, EDIT, DELETE
+  amount    Int
+  date      DateTime
+  note      String?
+  createdAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, txId])
+}
+
 model SalaryEntry {
   id          String   @id @default(cuid())
   companyId   String
@@ -981,6 +1009,7 @@ model SalaryEntry {
   amount      Int // коп., всегда положительное
   comment     String?
   cashTxId    String? // выплата из кассы
+  locationId  String?
   createdById String?
   date        DateTime @default(now())
   createdAt   DateTime @default(now())

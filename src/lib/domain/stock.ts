@@ -295,6 +295,8 @@ export async function payStockDoc(
     method: r.method,
     category: d.clientId ? "Выкуп техники" : "Оплата за товар поставщику",
     comment: `Поступление №${d.number}${who ? `, ${who}` : ""}`,
+    stockDocId: d.id,
+    supplierId: d.supplierId,
   });
   return db.stockDoc.update({ where: { id: d.id }, data: { paid: { increment: r.amount } } });
 }
