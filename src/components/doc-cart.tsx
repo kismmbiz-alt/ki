@@ -56,6 +56,28 @@ export function DocCart({ products, mode }: { products: P[]; mode: "RECEIPT" | "
           </ul>
         )}
       </div>
+      <div className="flex flex-wrap gap-3 text-sm">
+        {mode === "INVENTORY" && (
+          <button
+            type="button"
+            className="text-blue-600 hover:underline"
+            title="Добавить все товары, которые есть на складе по учёту"
+            onClick={() =>
+              setRows((r) => {
+                const have = new Set(r.map((x) => x.productId));
+                return [...r, ...products.filter((p) => p.qty > 0 && !have.has(p.id)).map((p) => ({ productId: p.id, qty: String(p.qty), cost: String(p.cost / 100) }))];
+              })
+            }
+          >
+            Автозаполнение
+          </button>
+        )}
+        {rows.length > 0 && (
+          <button type="button" className="text-slate-500 hover:text-red-600" onClick={() => setRows([])}>
+            Очистить
+          </button>
+        )}
+      </div>
       <table className="w-full text-sm">
         <thead className="text-left text-xs text-slate-500">
           <tr>

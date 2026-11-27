@@ -9,7 +9,7 @@ export default async function SuppliersPage() {
   const suppliers = await db.supplier.findMany({ orderBy: [{ isActive: "desc" }, { name: "asc" }], include: { _count: { select: { products: true, docs: true } } } });
   return (
     <>
-      <PageHeader title="Склад" />
+      <PageHeader title="Поставщики" />
       <StockTabs />
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
         <Card title="Поставщики">

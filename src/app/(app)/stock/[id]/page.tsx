@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { can, requirePermission } from "@/lib/auth";
-import { Card, dt, Field, Input, PageHeader, Select, Table } from "@/components/ui";
+import { Card, dt, Field, Input, PageHeader, Select, Stat, Table } from "@/components/ui";
 import { Form, Submit } from "@/components/form";
 import { kopToInput, rub } from "@/lib/money";
 import { inventoryAction, receiveAction, updateProductAction } from "../actions";
@@ -50,6 +50,18 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
     </Select>
   );
   const showCost = can(user, "cost");
+  // история как в LiveSklad: приход, расход и остаток после каждой операции
+  const [inSum, outSum] = await Promise.all([
+    db.stockMove.aggregate({ where: { productId: p.id, qty: { gt: 0 } }, _sum: { qty: true } }),
+    db.stockMove.aggregate({ where: { productId: p.id, qty: { lt: 0 } }, _sum: { qty: true } }),
+  ]);
+  const totalNow = p.stocks.reduce((a, s) => a + s.qty, 0);
+  let bal = totalNow;
+  const history = p.moves.map((m) => {
+    const after = bal;
+    bal -= m.qty;
+    return { m, after };
+  });
 
   return (
     <>
@@ -113,13 +125,19 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
               </ul>
             </Card>
           )}
-          <Table head={["Дата", "Операция", "Склад", "Кол-во", "Кто", "Комментарий"]} empty="Движений нет">
-            {p.moves.map((m) => (
+          <div className="grid grid-cols-3 gap-3">
+            <Stat label="Оприходовано" value={`${inSum._sum.qty ?? 0} шт`} />
+            <Stat label="Расход" value={`${-(outSum._sum.qty ?? 0)} шт`} />
+            <Stat label="Остаток" value={`${totalNow} шт`} sub={showCost ? `по закупке ${rub(totalNow * p.cost)}` : undefined} />
+          </div>
+          <Table head={["Дата", "Операция", "Склад", "Кол-во", "Остаток", "Кто", "Комментарий"]} empty="Движений нет">
+            {history.map(({ m, after }) => (
               <tr key={m.id}>
                 <td className="px-3 py-2 whitespace-nowrap text-slate-500">{dt(m.createdAt)}</td>
                 <td className="px-3 py-2">{MOVE_LABEL[m.type] ?? m.type}</td>
                 <td className="px-3 py-2">{m.warehouse.name}</td>
                 <td className={`px-3 py-2 font-medium ${m.qty < 0 ? "text-red-600" : "text-green-600"}`}>{m.qty > 0 ? `+${m.qty}` : m.qty}</td>
+                <td className="px-3 py-2 text-slate-700">{after}</td>
                 <td className="px-3 py-2 text-slate-500">{m.user?.name}</td>
                 <td className="px-3 py-2 text-slate-500">{m.comment}</td>
               </tr>

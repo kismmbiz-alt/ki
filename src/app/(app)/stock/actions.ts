@@ -8,6 +8,8 @@ import { createStockDoc, receiveStock, setStock, type DocInput } from "@/lib/dom
 import { redirect } from "next/navigation";
 import { saveProductPrices } from "@/lib/domain/prices";
 import { nextBarcode } from "@/lib/domain/barcodes";
+import { canNest } from "@/lib/domain/groups";
+import { markupPrice, type PriceField } from "@/lib/domain/markup";
 
 const optKop = (fd: FormData, k: string) => (str(fd, k) ? toKop(fd.get(k)) : null);
 
@@ -105,7 +107,8 @@ export const saveGroupAction = safe(async (fd) => {
     await ctx.db.productGroup.delete({ where: { id } });
   } else {
     if (!name) throw new Error("Укажите название группы");
-    if (id) await ctx.db.productGroup.update({ where: { id }, data: { name, parentId: parentId === id ? null : parentId } });
+    if (id && !canNest(await ctx.db.productGroup.findMany({ select: { id: true, name: true, parentId: true } }), id, parentId)) throw new Error("Нельзя вложить группу саму в себя или в свою подгруппу");
+    if (id) await ctx.db.productGroup.update({ where: { id }, data: { name, parentId } });
     else await ctx.db.productGroup.create({ data: { companyId: ctx.company.id, name, parentId } });
   }
   revalidatePath("/stock");
@@ -146,4 +149,57 @@ export const stockDocAction = safe(async (fd) => {
   );
   revalidatePath("/stock", "layout");
   redirect(`/stock/docs/${doc.id}`);
+});
+
+const PRICE_FIELDS: PriceField[] = ["cost", "price", "repairPrice", "minPrice"];
+
+/** Действия с отмеченными товарами на складе: наценка, изменение полей, архив. */
+export const bulkProductsAction = safe(async (fd) => {
+  const ctx = await requirePermission("stockDocs");
+  const ids = fd.getAll("products").map(String).filter(Boolean);
+  if (!ids.length) throw new Error("Отметьте товары галочками");
+  const op = str(fd, "op");
+  const products = await ctx.db.product.findMany({ where: { id: { in: ids } } });
+  if (op === "markup") {
+    const from = str(fd, "from") as PriceField;
+    const to = str(fd, "to") as PriceField;
+    if (!PRICE_FIELDS.includes(from) || !PRICE_FIELDS.includes(to) || to === "cost") throw new Error("Выберите цены");
+    const pct = Number(String(fd.get("pct") ?? "").replace(",", ".")) || 0;
+    const add = str(fd, "add") ? toKop(fd.get("add")) : 0;
+    const round = str(fd, "round") ? toKop(fd.get("round")) : 0;
+    let n = 0;
+    for (const p of products) {
+      const base = p[from];
+      if (base == null || base <= 0) continue;
+      await ctx.db.product.update({ where: { id: p.id }, data: { [to]: markupPrice(base, pct, add, round) } });
+      n++;
+    }
+    revalidatePath("/stock");
+    return `Цена изменена у ${n} товаров`;
+  }
+  if (op === "edit") {
+    const data: Record<string, unknown> = {};
+    const g = str(fd, "setGroup");
+    if (g) {
+      if (g !== "none") await ctx.db.productGroup.findUniqueOrThrow({ where: { id: g } });
+      data.groupId = g === "none" ? null : g;
+    }
+    const sup = str(fd, "setSupplier");
+    if (sup) {
+      if (sup !== "none") await ctx.db.supplier.findUniqueOrThrow({ where: { id: sup } });
+      data.supplierId = sup === "none" ? null : sup;
+    }
+    if (str(fd, "setMinQty")) data.minQty = int(fd, "setMinQty");
+    for (const f of ["price", "repairPrice", "minPrice"] as const) if (str(fd, `set_${f}`)) data[f] = toKop(fd.get(`set_${f}`));
+    if (!Object.keys(data).length) throw new Error("Укажите, что изменить");
+    await ctx.db.product.updateMany({ where: { id: { in: products.map((p) => p.id) } }, data });
+    revalidatePath("/stock");
+    return `Изменено товаров: ${products.length}`;
+  }
+  if (op === "archive" || op === "unarchive") {
+    await ctx.db.product.updateMany({ where: { id: { in: products.map((p) => p.id) } }, data: { isActive: op === "unarchive" } });
+    revalidatePath("/stock");
+    return op === "archive" ? `В архив: ${products.length}` : `Из архива: ${products.length}`;
+  }
+  throw new Error("Неизвестное действие");
 });

@@ -15,7 +15,7 @@ const HINT = {
   INVENTORY: "Впишите фактическое количество. Разница с учётом будет исправлена.",
 } as const;
 
-const BACK = { RECEIPT: "receipts", TRANSFER: "transfers", WRITEOFF: "writeoffs", INVENTORY: "inventory", SUPPLIER_RETURN: "returns" } as const;
+const BACK = { RECEIPT: "receipts", TRANSFER: "transfers", WRITEOFF: "writeoffs", INVENTORY: "inventory", SUPPLIER_RETURN: "supplier-returns" } as const;
 
 export default async function NewDocPage({ searchParams }: { searchParams: Promise<{ type?: string; w?: string }> }) {
   const { type: t, w } = await searchParams;

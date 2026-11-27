@@ -4,7 +4,7 @@ import { RowLink } from "@/components/row-link";
 import { rub } from "@/lib/money";
 import { DocList } from "../_ui/doc-list";
 
-/** Возвраты: от покупателей (по продажам) и поставщику (документы). */
+/** Возвраты от клиентов: чеки возврата по продажам. */
 export default async function ReturnsPage() {
   const { db, location } = await requireUser();
   const sales = await db.sale.findMany({
@@ -17,8 +17,8 @@ export default async function ReturnsPage() {
     (await db.sale.findMany({ where: { id: { in: sales.map((s) => s.returnOfId).filter((x): x is string => !!x) } }, select: { id: true, number: true } })).map((s) => [s.id, s.number]),
   );
   return (
-    <DocList types={["SUPPLIER_RETURN"]} action="SUPPLIER_RETURN" actionLabel="Возврат поставщику">
-      <h2 className="mb-2 text-sm font-semibold text-slate-800">Возвраты от покупателей</h2>
+    <DocList types={[]} title="Возвраты от клиентов">
+      <p className="mb-3 text-sm text-slate-500">Возврат оформляется из продажи: откройте чек в «Продажи → История продаж» и нажмите «Возврат».</p>
       <div className="mb-6">
         <Table head={["Дата", "Чек возврата", "По продаже", "Склад", "Товары", "Сумма", "Кто"]} empty="Возвратов от покупателей нет">
           {sales.map((s) => (
@@ -34,7 +34,6 @@ export default async function ReturnsPage() {
           ))}
         </Table>
       </div>
-      <h2 className="mb-2 text-sm font-semibold text-slate-800">Возвраты поставщикам</h2>
     </DocList>
   );
 }

@@ -1,13 +1,14 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
-import { Download, FolderPlus, Plus, Search, Printer } from "lucide-react";
+import { ChevronRight, Download, FolderPlus, Plus, Search, Printer } from "lucide-react";
+import { flattenGroups, groupPath, withDescendants } from "@/lib/domain/groups";
 import { can, requirePermission } from "@/lib/auth";
 import { btn, Card, Input, PageHeader, Select } from "@/components/ui";
 import { Form, Submit } from "@/components/form";
 import { RowLink } from "@/components/row-link";
 import { rub } from "@/lib/money";
-import { createProductAction, saveGroupAction } from "./actions";
+import { bulkProductsAction, createProductAction, saveGroupAction } from "./actions";
 import { StockTabs } from "./_ui/tabs";
 import { WarehousePills } from "./_ui/wh-pills";
 import { groupOptions, ProductFields } from "./_ui/product-fields";
@@ -26,19 +27,24 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
     if (hit.length === 1) redirect(`/stock/${hit[0].id}`);
   }
   if (q) where.OR = [{ name: { contains: q, mode: "insensitive" } }, { sku: { contains: q, mode: "insensitive" } }, { barcode: q }];
+  const allGroups = await db.productGroup.findMany({ orderBy: { name: "asc" } });
   if (sp.g === "none") where.groupId = null;
-  else if (sp.g) where.groupId = sp.g;
+  else if (sp.g) where.groupId = { in: withDescendants(allGroups, sp.g) };
 
   const warehouses = await db.warehouse.findMany({ where: { isActive: true, locationId: location?.id }, orderBy: [{ sort: "asc" }, { createdAt: "asc" }] });
   const wh = warehouses.find((w) => w.id === sp.w) ?? null;
-  const [groups, suppliers, products, counts, total] = await Promise.all([
-    db.productGroup.findMany({ orderBy: { name: "asc" } }),
+  const groups = allGroups;
+  const [suppliers, products, counts, total] = await Promise.all([
     db.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     db.product.findMany({ where, include: { stocks: true, group: true, supplier: true }, orderBy: { name: "asc" }, take: 2000 }),
     db.product.groupBy({ by: ["groupId"], where: { isActive: true }, _count: true }),
     db.product.count({ where: { isActive: true } }),
   ]);
   const countBy = new Map(counts.map((c) => [c.groupId, c._count]));
+  const countIn = (id: string) => withDescendants(groups, id).reduce((n, g) => n + (countBy.get(g) ?? 0), 0);
+  const flat = flattenGroups(groups);
+  const openIds = new Set(sp.g && sp.g !== "none" ? groupPath(groups, sp.g).map((g) => g.id) : []);
+  const visible = flat.filter((g) => !g.parentId || openIds.has(g.parentId));
   const rows = products
     .map((p) => {
       const inHere = (s: { locationId: string; warehouseId: string }) => (wh ? s.warehouseId === wh.id : s.locationId === location?.id);
@@ -60,7 +66,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
 
   return (
     <>
-      <PageHeader title="Склад">
+      <PageHeader title="Остатки">
         <a href={`/stock/export?${new URLSearchParams(Object.entries(sp).filter(([, v]) => v) as [string, string][])}`} className={btn("secondary")}>
           <Download size={16} /> Экспорт
         </a>
@@ -82,8 +88,8 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
             <GroupLink href={qs({ g: undefined })} on={!sp.g} label="Все товары" n={total} />
             <GroupLink href={qs({ g: "none" })} on={sp.g === "none"} label="Без группы" n={countBy.get(null) ?? 0} />
             <div className="my-1 border-t border-slate-100" />
-            {tree.map((g) => (
-              <GroupLink key={g.id} href={qs({ g: g.id })} on={sp.g === g.id} label={g.label} n={countBy.get(g.id) ?? 0} />
+            {visible.map((g) => (
+              <GroupLink key={g.id} href={qs({ g: g.id })} on={sp.g === g.id} label={g.name} n={countIn(g.id)} depth={g.depth} tree={g.hasChildren ? (openIds.has(g.id) ? "open" : "closed") : undefined} />
             ))}
           </div>
           <details className="rounded-xl border border-slate-200 bg-white">
@@ -166,10 +172,13 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
             ))}
           </div>
 
+          <Form action={bulkProductsAction} resetOnOk={false} className="space-y-3">
+          {can(user, "stockDocs") && <BulkPanel tree={tree} suppliers={suppliers} archive={filter === "archive"} showCost={showCost} />}
           <div className="scroll-thin overflow-x-auto rounded-xl border border-slate-200 bg-white">
             <table className="w-full text-sm">
               <thead className="border-b border-slate-200 text-left text-xs text-slate-500">
                 <tr>
+                  <th className="w-8 py-2.5 pl-3" />
                   <th className="px-3 py-2.5 font-medium">Наименование · {rows.length}</th>
                   <th className="px-3 py-2.5 font-medium">Группа</th>
                   <th className="px-3 py-2.5 font-medium">Поставщик</th>
@@ -185,6 +194,9 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
               <tbody className="divide-y divide-slate-100">
                 {rows.map(({ p, here, other, low }) => (
                   <RowLink key={p.id} href={`/stock/${p.id}`}>
+                    <td className="py-2 pl-3">
+                      <input type="checkbox" name="products" value={p.id} className="h-4 w-4 align-middle" aria-label="Отметить" />
+                    </td>
                     <td className="px-3 py-2">
                       <div className="text-slate-900">{p.name}</div>
                       {(p.sku || p.barcode) && <div className="text-xs text-slate-500">{[p.sku && `Код: ${p.sku}`, p.barcode].filter(Boolean).join(" · ")}</div>}
@@ -204,6 +216,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
             </table>
             {!rows.length && <p className="p-10 text-center text-sm text-slate-400">Товаров нет</p>}
           </div>
+          </Form>
           {showCost && <p className="text-sm text-slate-500">Товара {wh ? `на складе «${wh.name}»` : "на точке"} по закупочной цене: {rub(value)}</p>}
         </div>
       </div>
@@ -211,11 +224,106 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
   );
 }
 
-function GroupLink({ href, on, label, n }: { href: string; on: boolean; label: string; n: number }) {
+function GroupLink({ href, on, label, n, depth = 0, tree }: { href: string; on: boolean; label: string; n: number; depth?: number; tree?: "open" | "closed" }) {
   return (
-    <Link href={href} className={`flex items-center justify-between rounded-md px-2.5 py-1.5 ${on ? "bg-blue-50 font-medium text-blue-700" : "text-slate-700 hover:bg-slate-100"}`}>
-      <span className="truncate">{label}</span>
+    <Link href={href} style={{ paddingLeft: 10 + depth * 14 }} className={`flex items-center justify-between rounded-md py-1.5 pr-2.5 ${on ? "bg-blue-50 font-medium text-blue-700" : "text-slate-700 hover:bg-slate-100"}`}>
+      <span className="flex min-w-0 items-center gap-1">
+        {tree ? <ChevronRight size={13} className={`shrink-0 text-slate-400 transition ${tree === "open" ? "rotate-90" : ""}`} /> : <span className="w-[13px] shrink-0" />}
+        <span className="truncate">{label}</span>
+      </span>
       <span className="ml-2 text-xs text-slate-400">{n}</span>
     </Link>
+  );
+}
+
+/** Действия с отмеченными товарами (как в LiveSklad: Печать, Наценить, Изменить, В архив). */
+function BulkPanel({ tree, suppliers, archive, showCost }: { tree: { id: string; label: string }[]; suppliers: { id: string; name: string }[]; archive: boolean; showCost: boolean }) {
+  const prices = [
+    ...(showCost ? [["cost", "Закупочная"]] : []),
+    ["price", "Розничная"],
+    ["repairPrice", "Ремонтная"],
+    ["minPrice", "Минимальная"],
+  ];
+  return (
+    <details className="rounded-xl border border-slate-200 bg-white">
+      <summary className="cursor-pointer list-none px-3 py-2 text-sm text-blue-600">Действия с отмеченными товарами</summary>
+      <div className="grid gap-4 border-t border-slate-100 p-3 text-sm lg:grid-cols-3">
+        <div className="space-y-2">
+          <div className="font-medium text-slate-700">Наценить</div>
+          <div className="grid grid-cols-2 gap-2">
+            <Select name="from" defaultValue={showCost ? "cost" : "price"} title="Наценить от">
+              {prices.map(([k, l]) => (
+                <option key={k} value={k}>
+                  от: {l}
+                </option>
+              ))}
+            </Select>
+            <Select name="to" defaultValue="price" title="Какую цену поменять">
+              {prices
+                .filter(([k]) => k !== "cost")
+                .map(([k, l]) => (
+                  <option key={k} value={k}>
+                    в: {l}
+                  </option>
+                ))}
+            </Select>
+            <Input name="pct" inputMode="decimal" placeholder="Наценка, %" />
+            <Input name="add" inputMode="decimal" placeholder="Плюс, ₽" />
+            <Select name="round" defaultValue="">
+              <option value="">Не округлять</option>
+              <option value="1">Округлить до 1 ₽</option>
+              <option value="10">до 10 ₽</option>
+              <option value="50">до 50 ₽</option>
+              <option value="100">до 100 ₽</option>
+            </Select>
+            <button name="op" value="markup" className={btn("secondary")}>
+              Наценить
+            </button>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <div className="font-medium text-slate-700">Изменить</div>
+          <div className="grid grid-cols-2 gap-2">
+            <Select name="setGroup" defaultValue="">
+              <option value="">Группа: не менять</option>
+              <option value="none">Без группы</option>
+              {tree.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.label}
+                </option>
+              ))}
+            </Select>
+            <Select name="setSupplier" defaultValue="">
+              <option value="">Поставщик: не менять</option>
+              <option value="none">Без поставщика</option>
+              {suppliers.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+            </Select>
+            <Input name="setMinQty" inputMode="numeric" placeholder="Мин. остаток" />
+            <Input name="set_price" inputMode="decimal" placeholder="Розничная, ₽" />
+            <Input name="set_repairPrice" inputMode="decimal" placeholder="Ремонтная, ₽" />
+            <Input name="set_minPrice" inputMode="decimal" placeholder="Минимальная, ₽" />
+            <button name="op" value="edit" className={btn("secondary")}>
+              Изменить
+            </button>
+          </div>
+          <p className="text-xs text-slate-400">Пустые поля не меняются.</p>
+        </div>
+        <div className="space-y-2">
+          <div className="font-medium text-slate-700">Ещё</div>
+          <div className="flex flex-wrap gap-2">
+            <button formAction="/print/t" formMethod="get" formTarget="_blank" className={btn("secondary")}>
+              <Printer size={15} /> Ценники
+            </button>
+            <button name="op" value={archive ? "unarchive" : "archive"} className={btn("secondary")}>
+              {archive ? "Вернуть из архива" : "В архив"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </details>
   );
 }

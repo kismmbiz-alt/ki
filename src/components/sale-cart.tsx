@@ -5,7 +5,7 @@ import { Minus, Plus, Search, Trash2 } from "lucide-react";
 import { inputCls } from "./ui";
 
 type P = { id: string; name: string; sku: string | null; price: number; minPrice: number | null; qty: number; other: number; barcode: string | null; groupId: string | null; prices?: Record<string, number> };
-type G = { id: string; label: string };
+type G = { id: string; label: string; ids?: string[] };
 
 const fmt = (rub: number) => rub.toLocaleString("ru-RU", { maximumFractionDigits: 2 }) + " ₽";
 
@@ -32,7 +32,7 @@ export function SaleCart({
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
   const needle = q.trim().toLowerCase();
   const list = products
-    .filter((p) => (!g || p.groupId === g) && (!needle || p.barcode === q.trim() || p.sku?.toLowerCase() === needle || p.name.toLowerCase().includes(needle)))
+    .filter((p) => (!g || (groups.find((x) => x.id === g)?.ids ?? [g]).includes(p.groupId ?? "")) && (!needle || p.barcode === q.trim() || p.sku?.toLowerCase() === needle || p.name.toLowerCase().includes(needle)))
     .slice(0, 200);
 
   const add = (p: P) => {

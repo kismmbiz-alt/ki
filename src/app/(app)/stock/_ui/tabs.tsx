@@ -5,11 +5,13 @@ export function StockTabs() {
     { href: "/stock", label: "Остатки" },
     { href: "/stock/receipts", label: "Поступления" },
     { href: "/stock/transfers", label: "Перемещения" },
+    { href: "/stock/returns", label: "Возвраты от клиентов" },
+    { href: "/stock/supplier-returns", label: "Возвраты поставщикам" },
+    { href: "/stock/inventory", label: "Инвентаризации" },
     { href: "/stock/writeoffs", label: "Списания" },
-    { href: "/stock/returns", label: "Возвраты" },
-    { href: "/stock/inventory", label: "Инвентаризация" },
     { href: "/stock/suppliers", label: "Поставщики" },
     { href: "/stock/import", label: "Загрузка из Excel" },
+    { href: "/stock/settings", label: "Настройки склада" },
   ];
   return (
     <div className="scroll-thin mb-4 flex gap-1 overflow-x-auto border-b border-slate-200">

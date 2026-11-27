@@ -18,26 +18,106 @@ import {
 import { can, requireUser, ROLE_LABEL } from "@/lib/auth";
 import { logout } from "../(auth)/actions";
 import { switchLocation, toggleTheme } from "./actions";
-import { NavLink } from "@/components/nav-link";
+import { SideNav, type SubItem } from "@/components/side-nav";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, company, locations, location } = await requireUser();
   const dark = (await cookies()).get("theme")?.value !== "light";
   const role = user.role;
   const I = { size: 18, strokeWidth: 1.8 };
+  const has = (p: Parameters<typeof can>[1]) => can(user, p);
+  const sub = (list: (SubItem & { show?: boolean })[]) => list.filter((x) => x.show !== false);
   const nav = [
     { href: "/dashboard", label: "Главная", icon: <House {...I} />, show: true },
-    { href: "/sales", label: "Продажи", icon: <ShoppingCart {...I} />, show: can(user, "sales") },
+    {
+      href: "/sales",
+      label: "Продажи",
+      icon: <ShoppingCart {...I} />,
+      show: has("sales"),
+      children: sub([
+        { href: "/sales", label: "Касса", exact: true },
+        { href: "/sales/history", label: "История продаж" },
+        { href: "/sales/shift", label: "Смена" },
+      ]),
+    },
     { href: "/orders", label: "Заказы", icon: <Wrench {...I} />, show: true },
     { href: "/clients", label: "Клиенты", icon: <Users {...I} />, show: true },
-    { href: "/stock", label: "Склад", icon: <Package {...I} />, show: can(user, "stock") },
-    { href: "/market", label: "Рынок", icon: <HandCoins {...I} />, show: can(user, "buyback") || can(user, "marketSummary") },
-    { href: can(user, "cash") ? "/cash" : "/cash/journal", label: "Финансы", icon: <Wallet {...I} />, show: can(user, "cash") || can(user, "journal") },
-    { href: "/reports", label: "Аналитика", icon: <ChartColumn {...I} />, show: can(user, "reports") },
-    { href: "/settings/dicts", label: "Справочники", icon: <BookOpen {...I} />, show: can(user, "settings") },
-    { href: "/salary", label: "Зарплата", icon: <BadgeRussianRuble {...I} />, show: can(user, "cash") || can(user, "users") },
-    { href: "/settings", label: "Настройки", icon: <Settings {...I} />, show: true },
-  ].filter((n) => n.show);
+    {
+      href: "/stock",
+      label: "Склад",
+      icon: <Package {...I} />,
+      show: has("stock"),
+      children: sub([
+        { href: "/stock", label: "Остатки", exact: true },
+        { href: "/stock/receipts", label: "Поступления" },
+        { href: "/stock/transfers", label: "Перемещения" },
+        { href: "/stock/returns", label: "Возвраты от клиентов" },
+        { href: "/stock/supplier-returns", label: "Возвраты поставщикам" },
+        { href: "/stock/inventory", label: "Инвентаризации" },
+        { href: "/stock/writeoffs", label: "Списания" },
+        { href: "/stock/suppliers", label: "Поставщики" },
+        { href: "/stock/import", label: "Загрузка из Excel", show: has("stockDocs") },
+        { href: "/stock/settings", label: "Настройки склада" },
+      ]),
+    },
+    {
+      href: "/market",
+      label: "Рынок",
+      icon: <HandCoins {...I} />,
+      show: has("buyback") || has("marketSummary"),
+      children: sub([
+        { href: "/market", label: "Оценка", exact: true, show: has("buyback") },
+        { href: "/market/search", label: "Поиск", show: has("buyback") },
+        { href: "/market/results", label: "Результаты", show: has("buyback") },
+        { href: "/market/summary", label: "Сводка", show: has("marketSummary") },
+        { href: "/market/sources", label: "Источники", show: has("buybackSources") },
+        { href: "/market/settings", label: "Настройки", show: has("buybackSources") },
+      ]),
+    },
+    {
+      href: has("cash") ? "/cash" : "/cash/journal",
+      label: "Финансы",
+      icon: <Wallet {...I} />,
+      show: has("cash") || has("journal"),
+      match: ["/cash"],
+      children: sub([
+        { href: "/cash", label: "Кассы", exact: true, show: has("cash") },
+        { href: "/cash/operations", label: "Все операции", show: has("cash") },
+        { href: "/cash/journal", label: "Журнал действий", show: has("journal") },
+      ]),
+    },
+    {
+      href: "/reports",
+      label: "Аналитика",
+      icon: <ChartColumn {...I} />,
+      show: has("reports"),
+      children: sub([
+        { href: "/reports", label: "Отчёты", exact: true },
+        { href: "/reports/products", label: "Продажи товаров" },
+      ]),
+    },
+    { href: "/settings/dicts", label: "Справочники", icon: <BookOpen {...I} />, show: has("settings") },
+    { href: "/salary", label: "Зарплата", icon: <BadgeRussianRuble {...I} />, show: has("cash") || has("users") },
+    {
+      href: "/settings",
+      label: "Настройки",
+      icon: <Settings {...I} />,
+      show: true,
+      children: sub([
+        { href: "/settings", label: "Общие", exact: true },
+        { href: "/settings/locations", label: "Точки и план", show: has("settings") },
+        { href: "/settings/places", label: "Склады и кассы", show: has("settings") },
+        { href: "/settings/users", label: "Сотрудники", show: has("users") },
+        { href: "/settings/positions", label: "Должности и права", show: has("users") },
+        { href: "/settings/statuses", label: "Статусы", show: has("settings") },
+        { href: "/settings/prices", label: "Цены", show: has("settings") },
+        { href: "/settings/prints", label: "Печатные формы", show: has("settings") },
+        { href: "/settings/catalog", label: "Прайс и источники", show: has("settings") },
+      ]),
+    },
+  ]
+    .filter((n) => n.show)
+    .map(({ show: _show, ...n }) => n);
 
   return (
     <div className={`min-h-screen md:flex ${dark ? "theme-dark" : ""}`}>
@@ -70,11 +150,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </form>
         )}
         <nav className="scroll-thin flex gap-1 overflow-x-auto px-2 pb-2 md:flex-1 md:flex-col md:overflow-y-auto">
-          {nav.map((n) => (
-            <NavLink key={n.href} href={n.href} icon={n.icon} variant="side">
-              {n.label}
-            </NavLink>
-          ))}
+          <SideNav items={nav} />
         </nav>
         <div className="hidden border-t border-[#262a31] px-3 py-3 md:block">
           <div className="mb-2 flex items-center gap-2 px-1">

@@ -1,5 +1,6 @@
 import { Field, Input, Select } from "@/components/ui";
 import { kopToInput } from "@/lib/money";
+import { flattenGroups, indentLabel } from "@/lib/domain/groups";
 
 type G = { id: string; name: string; parentId: string | null };
 type P = {
@@ -16,17 +17,9 @@ type P = {
   supplierId?: string | null;
 };
 
-/** Группы списком с отступом для подгрупп. */
+/** Группы списком: подгруппы с отступом, обычным текстом. */
 export function groupOptions(groups: G[]) {
-  const out: { id: string; label: string }[] = [];
-  const walk = (parent: string | null, depth: number) => {
-    for (const g of groups.filter((x) => x.parentId === parent).sort((a, b) => a.name.localeCompare(b.name))) {
-      out.push({ id: g.id, label: `${"— ".repeat(depth)}${g.name}` });
-      walk(g.id, depth + 1);
-    }
-  };
-  walk(null, 0);
-  return out;
+  return flattenGroups(groups).map((g) => ({ id: g.id, label: indentLabel(g.name, g.depth) }));
 }
 
 export function ProductFields({

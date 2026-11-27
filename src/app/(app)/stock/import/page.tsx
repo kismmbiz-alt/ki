@@ -8,7 +8,7 @@ export default async function ImportPage() {
   const { user, location } = await requirePermission("stock");
   return (
     <>
-      <PageHeader title="Склад" />
+      <PageHeader title="Загрузка из Excel" />
       <StockTabs />
       <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
         <b className="text-slate-800">Как перенести данные из старой CRM.</b> В LiveSklad откройте «Справочники → Товары» (или «Склад → Остатки») и нажмите «Экспорт».

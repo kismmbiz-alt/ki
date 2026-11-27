@@ -3,6 +3,7 @@ import { btn, Input, PageHeader, Select, Stat, Table } from "@/components/ui";
 
 import { rub } from "@/lib/money";
 import { periodReport } from "@/lib/domain/reports";
+import { ReportsTabs } from "./_tabs";
 
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ from?: string; to?: string; loc?: string }> }) {
   const sp = await searchParams;
@@ -32,6 +33,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           <button className={btn("secondary")}>Показать</button>
         </form>
       </PageHeader>
+      <ReportsTabs />
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Выручка по выданным заказам" value={rub(r.ordersRevenue)} sub={`прибыль ${rub(r.ordersProfit)} (без учёта зарплаты)`} />
         <Stat label="Продажи товаров" value={rub(r.salesRevenue)} sub={`прибыль ${rub(r.salesProfit)}`} />

@@ -7,7 +7,7 @@ import { ensureTemplates, pageCss, typesFor } from "@/lib/print/templates";
 import { salarySheet } from "@/lib/domain/salary";
 
 type SP = Record<string, string | undefined>;
-const list = (s?: string) => (s ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+const list = (s?: string | string[]) => [s ?? ""].flat().join(",").split(",").map((x) => x.trim()).filter(Boolean);
 const day = (s: string | undefined, fallback: Date) => {
   const d = s ? new Date(`${s}T00:00:00`) : null;
   return d && !Number.isNaN(d.getTime()) ? d : fallback;

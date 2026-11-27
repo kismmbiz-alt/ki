@@ -15,7 +15,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   const print = await printMenu(db, company.id, "stock", d.type);
   return (
     <>
-      <PageHeader title={`${DOC_LABEL[d.type]} №${d.number}`} back={`/stock/${({ RECEIPT: "receipts", TRANSFER: "transfers", WRITEOFF: "writeoffs", INVENTORY: "inventory", SUPPLIER_RETURN: "returns" } as const)[d.type]}`}>
+      <PageHeader title={`${DOC_LABEL[d.type]} №${d.number}`} back={`/stock/${({ RECEIPT: "receipts", TRANSFER: "transfers", WRITEOFF: "writeoffs", INVENTORY: "inventory", SUPPLIER_RETURN: "supplier-returns" } as const)[d.type]}`}>
         <PrintMenu templates={print.templates} defaults={print.defaults} query={`doc=${d.id}`} />
         {d.items.length > 0 && (
           <a href={`/print/t?products=${d.items.map((i) => i.productId).join(",")}&qty=${d.items.map((i) => Math.max(1, Math.abs(i.qty))).join(",")}`} target="_blank" className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">

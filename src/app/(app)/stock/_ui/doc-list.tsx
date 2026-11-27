@@ -9,7 +9,7 @@ import { DOC_LABEL } from "@/lib/domain/stock";
 import { StockTabs } from "./tabs";
 
 /** Список складских документов одного вида для текущей точки. */
-export async function DocList({ types, action, actionLabel, children }: { types: StockDocType[]; action?: StockDocType; actionLabel?: string; children?: React.ReactNode }) {
+export async function DocList({ types, action, actionLabel, title = "Склад", children }: { types: StockDocType[]; action?: StockDocType; actionLabel?: string; title?: string; children?: React.ReactNode }) {
   const { db, location, user } = await requirePermission("stock");
   const docs = await db.stockDoc.findMany({
     where: { type: { in: types }, ...(location ? { OR: [{ locationId: location.id }, { toLocationId: location.id }] } : {}) },
@@ -21,7 +21,7 @@ export async function DocList({ types, action, actionLabel, children }: { types:
   const showCost = can(user, "cost");
   return (
     <>
-      <PageHeader title="Склад">
+      <PageHeader title={title}>
         {action && can(user, "stockDocs") && (
           <Link href={`/stock/docs/new?type=${action}`} className={btn()}>
             <Plus size={16} /> {actionLabel ?? DOC_LABEL[action]}
@@ -30,6 +30,7 @@ export async function DocList({ types, action, actionLabel, children }: { types:
       </PageHeader>
       <StockTabs />
       {children}
+      {types.length > 0 && (
       <Table head={["№", "Дата", "Документ", "Склад", "Поставщик / куда", "Позиций", ...(showCost ? ["Сумма по закупке"] : []), "Кто"]} empty="Документов пока нет">
         {docs.map((d) => (
           <RowLink key={d.id} href={`/stock/docs/${d.id}`}>
@@ -46,6 +47,7 @@ export async function DocList({ types, action, actionLabel, children }: { types:
           </RowLink>
         ))}
       </Table>
+      )}
     </>
   );
 }
