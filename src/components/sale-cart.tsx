@@ -18,7 +18,11 @@ export function SaleCart({
   defaultPriceKey = "retail",
   bonus,
   lookup,
+  tiles,
+  tilesHref,
 }: {
+  tiles?: { priority: (string | null)[]; frequent: ({ id: string; pinned: boolean } | null)[] };
+  tilesHref?: string;
   bonus?: { maxPct: number } | null;
   lookup?: (phone: string) => Promise<{ name: string; available: number; visits: number } | null>;
   products: P[];
@@ -254,6 +258,53 @@ export function SaleCart({
           {children}
         </div>
       </div>
+      {tiles && (
+        <div className="grid gap-4 xl:col-span-2 lg:grid-cols-2">
+          {([
+            ["Продать в первую очередь", tiles.priority.map((id) => (id ? { id, pinned: true } : null)), "border-amber-300 bg-amber-50 hover:border-amber-400 hover:bg-amber-100", "text-amber-700"],
+            ["Часто продаём", tiles.frequent, "border-sky-200 bg-sky-50 hover:border-sky-400 hover:bg-sky-100", "text-sky-700"],
+          ] as const).map(([title, list, cls, tcls]) => (
+            <div key={title} className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className={`text-sm font-semibold ${tcls}`}>{title}</span>
+                {tilesHref && (
+                  <a href={tilesHref} className="text-xs text-slate-400 hover:text-blue-600">
+                    настроить
+                  </a>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {list.map((t, i) => {
+                  const p = t ? byId.get(t.id) : undefined;
+                  if (!p)
+                    return (
+                      <div key={i} className="flex h-24 items-center justify-center rounded-lg border border-dashed border-slate-200 text-xs text-slate-300">
+                        {t ? "нет в наличии" : "пусто"}
+                      </div>
+                    );
+                  const inCart = rows.find((r) => r.productId === p.id)?.qty ?? 0;
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      disabled={p.qty <= 0}
+                      onClick={() => add(p)}
+                      className={`relative flex h-24 flex-col justify-between rounded-lg border p-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${cls}`}
+                    >
+                      <span className="line-clamp-2 text-sm font-medium text-slate-800">{p.name}</span>
+                      <span className="flex items-end justify-between">
+                        <b className="text-slate-900">{fmt(priceFor(p) / 100)}</b>
+                        <span className="text-xs text-slate-500">{p.qty} шт.</span>
+                      </span>
+                      {inCart > 0 && <span className="absolute -top-2 -right-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-blue-600 px-1.5 text-xs font-bold text-white">{inCart}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

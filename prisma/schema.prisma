@@ -161,6 +161,7 @@ model Company {
   salaryRules    SalaryRule[]
   salaryEntries  SalaryEntry[]
   cashTxLogs     CashTxLog[]
+  saleTiles      SaleTile[]
   bonusTxs       BonusTx[]
 }
 
@@ -984,6 +985,19 @@ model SalaryRule {
 }
 
 // Ручные записи по зарплате: бонус, штраф, выплата.
+// Плитки на экране продажи: PRIORITY — что начальство просит продать, FREQUENT — закреплённые частые товары.
+model SaleTile {
+  id        String @id @default(cuid())
+  companyId String
+  side      String // PRIORITY или FREQUENT
+  slot      Int // 0..3
+  productId String
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, side, slot])
+}
+
 // История изменений кассовой операции: создание, правка, удаление.
 model CashTxLog {
   id        String   @id @default(cuid())

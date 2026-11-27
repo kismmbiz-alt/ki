@@ -71,3 +71,20 @@ export async function bonusLookupAction(phone: string) {
   const visits = (await ctx.db.sale.count({ where: { clientId: c.id, isReturn: false } })) + (await ctx.db.order.count({ where: { clientId: c.id } }));
   return { name: c.name, available: st.available, visits };
 }
+
+/** Плитки продажи: настраивают владелец и администратор. */
+export const saveSaleTilesAction = safe(async (fd) => {
+  const ctx = await requirePermission("settings");
+  for (const side of ["PRIORITY", "FREQUENT"]) {
+    for (let slot = 0; slot < 4; slot++) {
+      const productId = String(fd.get(`${side}-${slot}`) ?? "");
+      await ctx.db.saleTile.deleteMany({ where: { side, slot } });
+      if (productId) {
+        await ctx.db.product.findUniqueOrThrow({ where: { id: productId } });
+        await ctx.db.saleTile.create({ data: { companyId: ctx.company.id, side, slot, productId } });
+      }
+    }
+  }
+  revalidatePath("/sales", "layout");
+  return "Плитки сохранены";
+});
