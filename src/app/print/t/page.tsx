@@ -47,7 +47,7 @@ export default async function PrintTemplates({ searchParams }: { searchParams: P
   if (!kind) notFound();
   const types = typesFor(kind, stockType);
   const ids = list(sp.tpl);
-  const tpls = ids.length ? ids.map((id) => all.find((t) => t.id === id)).filter((t) => !!t) : all.filter((t) => types.includes(t.docType) && t.isDefault).slice(0, 1);
+  const tpls = ids.length ? ids.map((id) => all.find((t) => t.id === id)).filter((t) => !!t) : all.filter((t) => types.includes(t.docType) && t.isDefault).sort((a, b) => types.indexOf(a.docType) - types.indexOf(b.docType)).slice(0, 1);
   if (!tpls.length) notFound();
 
   // данные
