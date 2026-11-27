@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PeriodPicker } from "@/components/period-picker";
 import { can, requirePermission } from "@/lib/auth";
 import { btn, Input, PageHeader, Select, Stat } from "@/components/ui";
 import { rub } from "@/lib/money";
@@ -42,8 +43,7 @@ export default async function ProductSalesPage({ searchParams }: { searchParams:
       <PageHeader title="Продажи товаров" />
       <ReportsTabs />
       <form className="mb-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-7">
-        <Input type="date" name="from" defaultValue={fromS} />
-        <Input type="date" name="to" defaultValue={toS} />
+        <PeriodPicker from={fromS} to={toS} clearable={false} />
         <Select name="loc" defaultValue={sp.loc ?? ""}>
           <option value="">Все точки</option>
           {locs.map((l) => (

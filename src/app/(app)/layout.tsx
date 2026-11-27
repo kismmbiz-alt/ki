@@ -1,6 +1,5 @@
 import { cookies } from "next/headers";
 import {
-  BadgeRussianRuble,
   BookOpen,
   ChartColumn,
   HandCoins,
@@ -87,14 +86,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       ]),
     },
     {
-      href: has("cash") ? "/cash" : "/cash/journal",
+      href: has("cash") ? "/cash" : has("journal") ? "/cash/journal" : "/cash/salary",
       label: "Финансы",
       icon: <Wallet {...I} />,
-      show: has("cash") || has("journal"),
+      show: has("cash") || has("journal") || has("users"),
       match: ["/cash"],
       children: sub([
         { href: "/cash", label: "Кассы", exact: true, show: has("cash") },
-        { href: "/cash/operations", label: "Все операции", show: has("cash") },
+        { href: "/cash/operations", label: "Транзакции", show: has("cash") },
+        { href: "/cash/salary", label: "Зарплата", show: has("cash") || has("users") },
         { href: "/cash/journal", label: "Журнал действий", show: has("journal") },
       ]),
     },
@@ -109,7 +109,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       ]),
     },
     { href: "/settings/dicts", label: "Справочники", icon: <BookOpen {...I} />, show: has("settings") },
-    { href: "/salary", label: "Зарплата", icon: <BadgeRussianRuble {...I} />, show: has("cash") || has("users") },
     {
       href: "/settings",
       label: "Настройки",

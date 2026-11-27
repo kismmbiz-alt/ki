@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PeriodPicker } from "@/components/period-picker";
 import { requirePermission } from "@/lib/auth";
 import { btn, Card, Input, PageHeader, Stat, Table } from "@/components/ui";
 import { HBars } from "@/components/charts";
@@ -59,8 +60,7 @@ export default async function SummaryPage({ searchParams }: { searchParams: Prom
     <>
       <PageHeader title="Рынок · сводка">
         <form className="flex flex-wrap gap-2">
-          <Input type="date" name="from" defaultValue={fromS} className="w-40" />
-          <Input type="date" name="to" defaultValue={toS} className="w-40" />
+          <PeriodPicker from={fromS} to={toS} clearable={false} />
           <button className={btn("secondary")}>Показать</button>
         </form>
       </PageHeader>

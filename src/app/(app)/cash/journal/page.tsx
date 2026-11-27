@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PeriodPicker } from "@/components/period-picker";
 import type { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/auth";
 import { btn, dt, Input, PageHeader, Select, Table } from "@/components/ui";
@@ -31,8 +32,7 @@ export default async function JournalPage({ searchParams }: { searchParams: Prom
       <PageHeader title="Финансы" />
       <CashTabs />
       <form className="mb-4 flex flex-wrap items-end gap-2">
-        <Input type="date" name="from" defaultValue={fromS} className="w-40" />
-        <Input type="date" name="to" defaultValue={toS} className="w-40" />
+        <PeriodPicker from={fromS} to={toS} clearable={false} />
         <Select name="u" defaultValue={sp.u ?? ""} className="w-44">
           <option value="">Все сотрудники</option>
           {users.map((u) => (

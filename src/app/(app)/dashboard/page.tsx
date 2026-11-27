@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PeriodPicker } from "@/components/period-picker";
 import { AlertTriangle, CalendarClock, CalendarDays, ChevronLeft, ChevronRight, Flame, PackageCheck, Plus, Target, TrendingDown, TrendingUp } from "lucide-react";
 import { can, requireUser } from "@/lib/auth";
 import { btn, dt } from "@/components/ui";
@@ -181,9 +182,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             <form className="flex flex-wrap items-center gap-1">
               {mine && allOrders && <input type="hidden" name="mine" value="1" />}
               {sp.scope && <input type="hidden" name="scope" value={sp.scope} />}
-              <input type="date" name="from" defaultValue={isoDate(range.from)} className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm" aria-label="С даты" />
-              <span className="text-slate-400">—</span>
-              <input type="date" name="to" defaultValue={isoDate(new Date(+range.to - 864e5))} className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm" aria-label="По дату" />
+              <PeriodPicker from={isoDate(range.from)} to={isoDate(new Date(+range.to - 864e5))} clearable={false} />
               <button className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-slate-700 hover:bg-slate-100">Показать</button>
             </form>
           </div>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PeriodPicker } from "@/components/period-picker";
 import { notFound } from "next/navigation";
 import { can, requirePermission } from "@/lib/auth";
 import { Card, dt, Field, Input, PageHeader, Select, Stat, Table } from "@/components/ui";
@@ -150,8 +151,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
                 </option>
               ))}
             </Select>
-            <Input type="date" name="from" defaultValue={sp.from} className="w-40" />
-            <Input type="date" name="to" defaultValue={sp.to} className="w-40" />
+            <PeriodPicker from={sp.from} to={sp.to} />
             <button className="rounded-lg border border-slate-200 px-3 py-2 text-slate-700 hover:bg-slate-100">Обновить историю</button>
           </form>
           <div className="grid grid-cols-3 gap-3">

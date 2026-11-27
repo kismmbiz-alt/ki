@@ -366,3 +366,13 @@ export const saveBonusRulesAction = safe(async (fd) => {
   revalidatePath("/settings/bonus");
   return "Сохранено";
 });
+
+/** Период зарплаты: месяц или неделя, количество, начало. */
+export const saveSalaryPeriodAction = safe(async (fd) => {
+  const ctx = await requirePermission("settings");
+  const type = str(fd, "type") === "WEEK" ? "WEEK" : "MONTH";
+  const count = Math.min(12, Math.max(1, Math.floor(Number(str(fd, "count")) || 1)));
+  await prisma.company.update({ where: { id: ctx.company.id }, data: { salaryPeriodType: type, salaryPeriodCount: count, salaryPeriodStart: dateOf(str(fd, "start")) } });
+  revalidatePath("/cash", "layout");
+  return "Сохранено";
+});

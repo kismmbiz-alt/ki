@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PeriodPicker } from "@/components/period-picker";
 import type { StockDocType } from "@prisma/client";
 import { Plus } from "lucide-react";
 import { can, requirePermission } from "@/lib/auth";
@@ -61,12 +62,7 @@ export async function DocList({
             ))}
           </Select>
         )}
-        <label className="text-xs text-slate-500">
-          с <Input type="date" name="from" defaultValue={filter.from ?? ""} className="w-40" />
-        </label>
-        <label className="text-xs text-slate-500">
-          по <Input type="date" name="to" defaultValue={filter.to ?? ""} className="w-40" />
-        </label>
+        <PeriodPicker from={filter.from} to={filter.to} />
         <button className={btn("secondary")}>Показать</button>
         {(filter.q || filter.from || filter.to || filter.wh) && (
           <Link href="?" className="px-2 py-2 text-sm text-slate-500 hover:text-slate-800">

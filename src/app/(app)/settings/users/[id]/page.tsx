@@ -112,7 +112,7 @@ export default async function EmployeePage({ params }: { params: Promise<{ id: s
   return (
     <>
       <PageHeader title={`Сотрудник: ${u.name}`} back="/settings/users">
-        <a href={`/salary?user=${u.id}`} className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+        <a href={`/cash/salary/${u.id}`} className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
           Зарплата сотрудника
         </a>
       </PageHeader>

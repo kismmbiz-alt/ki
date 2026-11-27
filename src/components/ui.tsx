@@ -3,6 +3,12 @@ import Link from "next/link";
 export const inputCls =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100";
 
+/** Классы поля: если задана своя ширина (w-40 и т. п.), убираем w-full, иначе поле растягивается на всю строку. */
+export const fieldCls = (extra?: string) => {
+  const own = extra ?? "";
+  return /(^|\s)w-/.test(own) ? `${inputCls.replace("w-full ", "")} ${own}` : `${inputCls} ${own}`;
+};
+
 export function Field({ label, children, hint, className = "" }: { label: string; children: React.ReactNode; hint?: string; className?: string }) {
   return (
     <label className={`block ${className}`}>
@@ -14,15 +20,15 @@ export function Field({ label, children, hint, className = "" }: { label: string
 }
 
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={`${inputCls} ${props.className ?? ""}`} />;
+  return <input {...props} className={fieldCls(props.className)} />;
 }
 
 export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea rows={3} {...props} className={`${inputCls} ${props.className ?? ""}`} />;
+  return <textarea rows={3} {...props} className={fieldCls(props.className)} />;
 }
 
 export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className={`${inputCls} ${props.className ?? ""}`} />;
+  return <select {...props} className={fieldCls(props.className)} />;
 }
 
 export function Card({ title, children, actions, className = "" }: { title?: React.ReactNode; children: React.ReactNode; actions?: React.ReactNode; className?: string }) {

@@ -73,6 +73,7 @@ export function PeriodPicker({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [alignRight, setAlignRight] = useState(false);
   const [a, setA] = useState(from ?? "");
   const [b, setB] = useState(to ?? "");
   const [picking, setPicking] = useState<Date | null>(null);
@@ -128,7 +129,11 @@ export function PeriodPicker({
       <input type="hidden" name={toName} value={b} />
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          const r = box.current?.getBoundingClientRect();
+          setAlignRight(!!r && r.left > window.innerWidth / 2);
+          setOpen((o) => !o);
+        }}
         className={`flex h-[38px] w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 text-left text-sm ${open ? "border-blue-500 ring-2 ring-blue-100" : "border-slate-300"}`}
       >
         <span className={label ? "font-medium text-slate-800" : "text-slate-400"}>{label || placeholder}</span>
@@ -147,7 +152,7 @@ export function PeriodPicker({
         )}
       </button>
       {open && (
-        <div className="absolute right-0 z-30 mt-1 flex max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl sm:flex-row">
+        <div className={`absolute ${alignRight ? "right-0" : "left-0"} z-30 mt-1 flex max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl sm:flex-row`}>
           <ul className="flex shrink-0 flex-wrap gap-1 border-b border-slate-100 p-2 text-sm sm:block sm:w-40 sm:border-r sm:border-b-0">
             {list.map((p) => {
               const [x, y] = p.range();

@@ -1,4 +1,5 @@
 import { requirePermission } from "@/lib/auth";
+import { PeriodPicker } from "@/components/period-picker";
 import { btn, Input, PageHeader, Select, Stat, Table } from "@/components/ui";
 
 import { rub } from "@/lib/money";
@@ -20,8 +21,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
     <>
       <PageHeader title="Отчёты">
         <form className="flex flex-wrap gap-2">
-          <Input type="date" name="from" defaultValue={fromS} className="w-40" />
-          <Input type="date" name="to" defaultValue={toS} className="w-40" />
+          <PeriodPicker from={fromS} to={toS} clearable={false} />
           <Select name="loc" defaultValue={sp.loc ?? ""} className="w-44">
             <option value="">Все точки</option>
             {locs.map((l) => (
