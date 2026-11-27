@@ -1,0 +1,85 @@
+import { beforeAll, describe, expect, it } from "vitest";
+import { execSync } from "child_process";
+import { tenant } from "@/lib/db";
+import { createCompany } from "@/lib/domain/company";
+import { orderTotals } from "@/lib/domain/orders";
+import { importHistory, type HistoryData } from "@/lib/domain/history-import";
+
+const uniq = () => Math.random().toString(36).slice(2, 8);
+
+beforeAll(() => {
+  execSync("npx prisma migrate deploy", { env: process.env, stdio: "ignore" });
+});
+
+const data: HistoryData = {
+  orders: [
+    {
+      number: 188,
+      createdAt: "2026-10-02T16:51:00+05:00",
+      status: "CLOSED",
+      client: { name: "Артём", phone: "+7 (937) 151-11-35" },
+      source: "С улицы",
+      deviceType: "Телефон",
+      brand: "Samsung",
+      model: "a21s",
+      problem: "Замена дисплейного модуля",
+      master: "Кирилл Иванов",
+      manager: "Голин Рихард",
+      closedAt: "2026-10-07T16:27:00+05:00",
+      items: [
+        { kind: "SERVICE", name: "Замена дисплея", qty: 1, price: 2152, warrantyDays: 30 },
+        { kind: "PART", name: "Дисплей A21s", qty: 1, price: 1348, warrantyDays: 30 },
+      ],
+      payments: [{ at: "2026-10-07T16:27:00+05:00", amount: 3500, method: "Наличными" }],
+      events: [{ at: "2026-10-07T16:27:00+05:00", text: "Статус: Выдан" }],
+    },
+  ],
+  sales: [
+    {
+      number: 2061,
+      createdAt: "2026-10-31T18:50:00+05:00",
+      user: "Голин Рихард",
+      profit: 330,
+      items: [{ name: "Чистка динамиков", qty: 1, price: 350 }],
+      payments: [{ amount: 350, method: "картой" }],
+    },
+  ],
+};
+
+describe("перенос истории из LiveSklad", () => {
+  it("заказы и продажи с датами, без дублей, номера продолжаются", async () => {
+    const a = await createCompany({ companyName: "А", ownerName: "Кирилл Иванов", email: `h-${uniq()}@test.ru`, password: "password123" });
+    const t = tenant(a.company.id);
+    const o = { locationId: a.location.id, userId: a.owner.id };
+
+    const dry = await importHistory(t, data, { ...o, dryRun: true });
+    expect(dry).toMatchObject({ orders: 1, sales: 1, clients: 1, products: 1, orderPaid: 350000, salesPaid: 35000 });
+    expect(await t.db.order.count()).toBe(0);
+
+    const rep = await importHistory(t, data, { ...o, dryRun: false });
+    expect(rep).toMatchObject({ orders: 1, sales: 1, errors: [] });
+    const order = await t.db.order.findFirstOrThrow({ include: { status: true, payments: true } });
+    expect(order.number).toBe(188);
+    expect(order.status.kind).toBe("CLOSED");
+    expect(order.createdAt.toISOString()).toBe("2026-10-02T11:51:00.000Z");
+    expect(order.masterId).toBe(a.owner.id);
+    expect(order.notes).toContain("Менеджер в LiveSklad: Голин Рихард");
+    expect(order.payments[0]).toMatchObject({ amount: 350000, method: "CASH" });
+    expect(order.payments[0].createdAt.toISOString()).toBe("2026-10-07T11:27:00.000Z");
+    const tot = await orderTotals(t, order.id);
+    expect(tot).toMatchObject({ total: 350000, due: 0, profit: 215200 });
+
+    const sale = await t.db.sale.findFirstOrThrow({ include: { items: true, transactions: true } });
+    expect(sale).toMatchObject({ number: 2061, total: 35000 });
+    expect(sale.items[0].cost).toBe(2000);
+    expect(sale.transactions[0].method).toBe("CARD");
+    expect(await t.db.stock.count()).toBe(0);
+
+    const again = await importHistory(t, data, { ...o, dryRun: false });
+    expect(again).toMatchObject({ orders: 0, sales: 0, skippedOrders: [188], skippedSales: [2061] });
+    const c = await t.db.order.count();
+    expect(c).toBe(1);
+    const company = await t.db.company.findUniqueOrThrow({ where: { id: a.company.id } });
+    expect(company).toMatchObject({ orderSeq: 188, saleSeq: 2061 });
+  });
+});

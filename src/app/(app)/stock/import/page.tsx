@@ -2,6 +2,7 @@ import { can, requirePermission } from "@/lib/auth";
 import { PageHeader } from "@/components/ui";
 import { StockTabs } from "../_ui/tabs";
 import { ImportForm } from "./import-form";
+import { HistoryForm } from "./history-form";
 
 export default async function ImportPage() {
   const { user, location } = await requirePermission("stock");
@@ -23,6 +24,7 @@ export default async function ImportPage() {
         {can(user.role, "settings") && (
           <ImportForm kind="clients" title="Клиенты" hint="Колонки: ФИО или имя, телефон, почта, адрес, рекламный источник, комментарий. Строки без телефона пропускаются." />
         )}
+        {can(user.role, "settings") && <HistoryForm />}
       </div>
     </>
   );
