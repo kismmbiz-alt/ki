@@ -67,6 +67,9 @@ export default async function ClientPage({
     }),
     clientStats(db, [c.id]).then((m) => m.get(c.id)!),
   ]);
+  const bought = can(user, "stock")
+    ? await db.stockDoc.findMany({ where: { clientId: c.id }, include: { items: true }, orderBy: { createdAt: "desc" }, take: 100 })
+    : [];
   const balls = (k: number) =>
     (k / 100).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
 
@@ -190,6 +193,26 @@ export default async function ClientPage({
               </tr>
             ))}
           </Table>
+          {bought.length > 0 && (
+            <>
+              <h2 className="text-sm font-semibold text-slate-700">Принято от клиента (выкуп техники)</h2>
+              <Table head={["Дата", "Документ", "Товары", "Сумма", "Оплачено"]}>
+                {bought.map((d) => (
+                  <tr key={d.id}>
+                    <td className="px-3 py-2 whitespace-nowrap text-slate-500">{dt(d.createdAt)}</td>
+                    <td className="px-3 py-2">
+                      <Link href={`/stock/docs/${d.id}`} className="text-blue-600 hover:underline">
+                        Поступление №{d.number}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2 text-slate-600">{d.items.map((i) => `${i.name} × ${i.qty}`).join(", ")}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{rub(d.total)}</td>
+                    <td className={`px-3 py-2 whitespace-nowrap ${d.paid < d.total ? "text-red-600" : ""}`}>{rub(d.paid)}</td>
+                  </tr>
+                ))}
+              </Table>
+            </>
+          )}
           <h2 className="text-sm font-semibold text-slate-700">
             Заказы (ремонт)
           </h2>

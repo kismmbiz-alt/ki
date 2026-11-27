@@ -19,8 +19,8 @@ const HINT = {
 
 const BACK = { RECEIPT: "receipts", TRANSFER: "transfers", WRITEOFF: "writeoffs", INVENTORY: "inventory", SUPPLIER_RETURN: "supplier-returns" } as const;
 
-export default async function NewDocPage({ searchParams }: { searchParams: Promise<{ type?: string; w?: string }> }) {
-  const { type: t, w } = await searchParams;
+export default async function NewDocPage({ searchParams }: { searchParams: Promise<{ type?: string; w?: string; supplier?: string }> }) {
+  const { type: t, w, supplier } = await searchParams;
   const type = (t && t in DOC_LABEL ? t : "RECEIPT") as keyof typeof DOC_LABEL;
   const ctx = await requirePermission("stockDocs");
   const loc = requireLocation(ctx);
@@ -55,7 +55,7 @@ export default async function NewDocPage({ searchParams }: { searchParams: Promi
             suppliers={suppliers.map((x) => ({ id: x.id, name: x.name }))}
             users={users}
             cashboxes={places.cashboxes.map((c) => ({ id: c.id, name: c.name }))}
-            defaults={{ warehouseId: wh.id, userId: ctx.user.id, cashboxId: places.cashboxes[0]?.id }}
+            defaults={{ warehouseId: wh.id, userId: ctx.user.id, cashboxId: places.cashboxes[0]?.id, supplierId: suppliers.some((x) => x.id === supplier) ? supplier : undefined }}
             canPay={can(ctx.user, "cashOps")}
             showCost={can(ctx.user, "cost")}
           />
@@ -71,7 +71,7 @@ export default async function NewDocPage({ searchParams }: { searchParams: Promi
     <>
       <PageHeader title={`${DOC_LABEL[type]} · ${loc.name}`} back={`/stock/${BACK[type]}`} />
       {warehouses.length > 1 && (
-        <WarehousePills warehouses={warehouses} current={wh.id} href={(id) => `/stock/docs/new?type=${type}&w=${id}`} />
+        <WarehousePills warehouses={warehouses} current={wh.id} href={(id) => `/stock/docs/new?type=${type}&w=${id}${supplier ? `&supplier=${supplier}` : ""}`} />
       )}
       <Form action={stockDocAction} resetOnOk={false}>
         <input type="hidden" name="type" value={type} />
@@ -88,7 +88,7 @@ export default async function NewDocPage({ searchParams }: { searchParams: Promi
               </div>
               {type === "SUPPLIER_RETURN" && (
                 <Field label="Поставщик">
-                  <Select name="supplierId" defaultValue="">
+                  <Select name="supplierId" defaultValue={supplier ?? ""}>
                     <option value="">—</option>
                     {suppliers.map((s) => (
                       <option key={s.id} value={s.id}>

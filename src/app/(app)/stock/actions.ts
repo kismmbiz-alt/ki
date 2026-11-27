@@ -129,7 +129,7 @@ export const saveSupplierAction = safe(async (fd) => {
   if (!data.name) throw new Error("Укажите название поставщика");
   if (id) await ctx.db.supplier.update({ where: { id }, data });
   else await ctx.db.supplier.create({ data: { companyId: ctx.company.id, ...data } });
-  revalidatePath("/stock/suppliers");
+  revalidatePath("/stock/suppliers", "layout");
   return "Сохранено";
 });
 

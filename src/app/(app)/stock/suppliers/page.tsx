@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
 import { Card, Input, PageHeader } from "@/components/ui";
 import { Form, Submit } from "@/components/form";
@@ -15,7 +16,7 @@ export default async function SuppliersPage() {
         <Card title="Поставщики">
           <div className="space-y-2">
             {suppliers.map((s) => (
-              <Form key={s.id} action={saveSupplierAction} resetOnOk={false} className="grid items-center gap-2 sm:grid-cols-[1fr_180px_1fr_auto_auto]">
+              <Form key={s.id} action={saveSupplierAction} resetOnOk={false} className="grid items-center gap-2 sm:grid-cols-[1fr_180px_1fr_auto_auto_auto]">
                 <input type="hidden" name="id" value={s.id} />
                 <Input name="name" defaultValue={s.name} />
                 <Input name="phone" defaultValue={s.phone ?? ""} placeholder="Телефон" />
@@ -24,6 +25,9 @@ export default async function SuppliersPage() {
                   <input type="checkbox" name="isActive" value="1" defaultChecked={s.isActive} /> активен
                 </label>
                 <Submit variant="secondary">OK</Submit>
+                <Link href={`/stock/suppliers/${s.id}`} className="text-sm text-blue-600 hover:underline">
+                  Карточка
+                </Link>
               </Form>
             ))}
             {!suppliers.length && <p className="text-sm text-slate-400">Поставщиков пока нет</p>}

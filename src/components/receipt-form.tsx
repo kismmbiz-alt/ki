@@ -39,12 +39,12 @@ export function ReceiptForm({
   suppliers: Opt[];
   users: Opt[];
   cashboxes: Opt[];
-  defaults: { warehouseId: string; userId: string; cashboxId?: string };
+  defaults: { warehouseId: string; userId: string; cashboxId?: string; supplierId?: string };
   canPay: boolean;
   showCost: boolean;
 }) {
   const [source, setSource] = useState<"supplier" | "client">("supplier");
-  const [supplierId, setSupplierId] = useState("");
+  const [supplierId, setSupplierId] = useState(defaults.supplierId ?? "");
   const [rows, setRows] = useState<Row[]>([]);
   const [q, setQ] = useState("");
   const [card, setCard] = useState<(NewP & { qty: string; cost: string; price: string; repairPrice: string; minPrice: string }) | null>(null);
