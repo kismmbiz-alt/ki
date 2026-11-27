@@ -55,6 +55,10 @@ const data: HistoryData = {
       returned: { items: [{ name: "Б/У Xiaomi POCO C51", qty: 1, price: 3990 }, { name: "Комплект BA20A", qty: 1, price: 392 }], amount: 4382, method: "Наличными" },
     },
   ],
+  cash: [
+    { at: "2026-10-31T23:59:00+05:00", amount: -5000, method: "Наличными", category: "Выплата заработной платы", comment: "Мастер" },
+    { at: "2026-10-21T18:19:00+05:00", amount: 60000, method: "Безналом", category: "Перемещение денег в кассу" },
+  ],
 };
 
 describe("перенос истории из LiveSklad", () => {
@@ -68,7 +72,7 @@ describe("перенос истории из LiveSklad", () => {
     expect(await t.db.order.count()).toBe(0);
 
     const rep = await importHistory(t, data, { ...o, dryRun: false });
-    expect(rep).toMatchObject({ orders: 1, sales: 2, returns: 1, errors: [] });
+    expect(rep).toMatchObject({ orders: 1, sales: 2, returns: 1, cash: 2, cashSum: 5500000, errors: [] });
     const order = await t.db.order.findFirstOrThrow({ include: { status: true, payments: true } });
     expect(order.number).toBe(188);
     expect(order.status.kind).toBe("CLOSED");
@@ -90,7 +94,7 @@ describe("перенос истории из LiveSklad", () => {
     expect(await t.db.stock.count()).toBe(0);
 
     const again = await importHistory(t, data, { ...o, dryRun: false });
-    expect(again).toMatchObject({ orders: 0, sales: 0, skippedOrders: [188], skippedSales: [2061, 2008] });
+    expect(again).toMatchObject({ orders: 0, sales: 0, skippedOrders: [188], skippedSales: [2061, 2008], cash: 0, skippedCash: 2 });
     const c = await t.db.order.count();
     expect(c).toBe(1);
     const company = await t.db.company.findUniqueOrThrow({ where: { id: a.company.id } });

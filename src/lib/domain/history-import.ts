@@ -48,7 +48,9 @@ export type HistSale = {
   /** возврат по этому чеку (в LiveSklad он хранится внутри чека); оформляется отдельной продажей-возвратом с номером 1 000 000 + номер чека */
   returned?: { items: { name: string; qty: number; price: number }[]; amount: number; method: string; at?: string | null } | null;
 };
-export type HistoryData = { orders?: HistOrder[]; sales?: HistSale[] };
+/** прочие движения денег: расходы, зарплата, оплата поставщикам, внесения, перемещения между кассами */
+export type HistCash = { at: string; amount: number; method: string; category: string; comment?: string | null };
+export type HistoryData = { orders?: HistOrder[]; sales?: HistSale[]; cash?: HistCash[] };
 export type HistoryReport = {
   orders: number;
   sales: number;
@@ -59,6 +61,9 @@ export type HistoryReport = {
   orderPaid: number;
   salesPaid: number;
   returns: number;
+  cash: number;
+  cashSum: number;
+  skippedCash: number;
   errors: string[];
 };
 
@@ -107,7 +112,7 @@ function check(data: HistoryData) {
 export async function importHistory(t: Tenant, data: HistoryData, o: { locationId: string; userId: string; dryRun: boolean }): Promise<HistoryReport> {
   check(data);
   const { db, companyId } = t;
-  const rep: HistoryReport = { orders: 0, sales: 0, skippedOrders: [], skippedSales: [], clients: 0, products: 0, orderPaid: 0, salesPaid: 0, returns: 0, errors: [] };
+  const rep: HistoryReport = { orders: 0, sales: 0, skippedOrders: [], skippedSales: [], clients: 0, products: 0, orderPaid: 0, salesPaid: 0, returns: 0, cash: 0, cashSum: 0, skippedCash: 0, errors: [] };
   const users = await db.user.findMany({ select: { id: true, name: true } });
   const userId = userMatcher(users);
   const statuses = await db.orderStatus.findMany({ orderBy: { sort: "asc" } });
@@ -348,6 +353,33 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
       if (s.returned) rep.returns--;
       rep.salesPaid -= paid;
       rep.errors.push(`Продажа №${s.number}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // прочие движения денег; повтор узнаётся по дате, сумме и статье
+  if (data.cash?.length) {
+    const seen = new Set(
+      (await db.cashTransaction.findMany({ where: { orderId: null, saleId: null }, select: { createdAt: true, amount: true, category: true } })).map(
+        (x) => `${x.createdAt.getTime()}|${x.amount}|${x.category}`,
+      ),
+    );
+    for (const c of data.cash) {
+      const at = date(c.at);
+      const amount = kop(c.amount);
+      if (!at || !amount) continue;
+      const category = (c.category || "Прочее").slice(0, 100);
+      const key = `${at.getTime()}|${amount}|${category}`;
+      if (seen.has(key)) {
+        rep.skippedCash++;
+        continue;
+      }
+      seen.add(key);
+      rep.cash++;
+      rep.cashSum += amount;
+      if (o.dryRun) continue;
+      await db.cashTransaction.create({
+        data: { companyId, locationId: o.locationId, userId: o.userId, amount, method: payMethod(c.method), category, comment: c.comment?.slice(0, 500) || "Перенос из LiveSklad", createdAt: at },
+      });
     }
   }
 

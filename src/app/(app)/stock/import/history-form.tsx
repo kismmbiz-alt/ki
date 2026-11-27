@@ -32,7 +32,7 @@ export function HistoryForm() {
         <History size={18} className="text-blue-600" /> Заказы и продажи из LiveSklad (с датами)
       </div>
       <p className="text-sm text-slate-500">
-        Переносит прошлые заказы с работами, запчастями и оплатами и прошлые продажи с их настоящими датами, чтобы отчёты и касса за прошлые месяцы сошлись. Остатки на складе не меняются.
+        Переносит прошлые заказы с работами, запчастями и оплатами, продажи с возвратами и прочие движения денег (зарплата, поставщики, расходы) с их настоящими датами, чтобы отчёты и касса за прошлые месяцы сошлись. Остатки на складе не меняются.
         Уже перенесённые номера пропускаются, так что повторный перенос ничего не задвоит.
       </p>
       <textarea name="json" rows={4} placeholder="Данные (JSON)" className={`${inputCls} font-mono text-xs`} />
@@ -45,12 +45,17 @@ export function HistoryForm() {
           <div>
             Заказов: <b>{r.orders}</b> (оплачено {rub(r.orderPaid)}), продаж: <b>{r.sales}</b> (оплачено {rub(r.salesPaid)})
           </div>
+          {(r.cash > 0 || r.skippedCash > 0) && (
+            <div>
+              Прочих движений денег: <b>{r.cash}</b> (итого {rub(r.cashSum)}), возвратов по чекам: <b>{r.returns}</b>
+            </div>
+          )}
           <div>
             Новых клиентов: <b>{r.clients}</b>, новых товаров в справочнике: <b>{r.products}</b>
           </div>
-          {(r.skippedOrders.length > 0 || r.skippedSales.length > 0) && (
+          {(r.skippedOrders.length > 0 || r.skippedSales.length > 0 || r.skippedCash > 0) && (
             <div className="text-xs">
-              Уже были, пропущены: заказов {r.skippedOrders.length}, продаж {r.skippedSales.length}
+              Уже были, пропущены: заказов {r.skippedOrders.length}, продаж {r.skippedSales.length}, движений денег {r.skippedCash}
             </div>
           )}
           {r.errors.length > 0 && (
