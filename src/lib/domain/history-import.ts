@@ -10,7 +10,8 @@ import { normalizePhone } from "./orders";
  * Повторная загрузка безопасна: заказ или продажа с уже существующим номером пропускается.
  */
 export type HistItem = { kind: "SERVICE" | "PART"; name: string; qty: number; price: number; cost?: number; warrantyDays?: number | null };
-export type HistPayment = { at: string; amount: number; method: string };
+/** cashbox — название кассы LiveSklad («Касса», «Ремонт»…); такая касса находится по названию или создаётся */
+export type HistPayment = { at: string; amount: number; method: string; cashbox?: string | null };
 export type HistOrder = {
   number: number;
   createdAt: string;
@@ -45,13 +46,29 @@ export type HistSale = {
   profit?: number | null;
   comment?: string | null;
   items: { name: string; sku?: string | null; qty: number; price: number }[];
-  payments: { amount: number; method: string }[];
+  payments: { amount: number; method: string; at?: string | null }[];
+  /** касса, в которую пришли деньги по чеку */
+  cashbox?: string | null;
   /** возврат по этому чеку (в LiveSklad он хранится внутри чека); оформляется отдельной продажей-возвратом с номером 1 000 000 + номер чека */
-  returned?: { items: { name: string; qty: number; price: number }[]; amount: number; method: string; at?: string | null } | null;
+  returned?: { items: { name: string; qty: number; price: number }[]; amount: number; method: string; at?: string | null; cashbox?: string | null } | null;
 };
 /** прочие движения денег: расходы, зарплата, оплата поставщикам, внесения, перемещения между кассами */
-export type HistCash = { at: string; amount: number; method: string; category: string; comment?: string | null };
-export type HistoryData = { orders?: HistOrder[]; sales?: HistSale[]; cash?: HistCash[] };
+export type HistCash = {
+  at: string;
+  amount: number;
+  method: string;
+  category: string;
+  comment?: string | null;
+  cashbox?: string | null;
+  /** две половины перемещения между кассами с одинаковым ключом связываются в один перевод */
+  transferKey?: string | null;
+  /** получатель: поставщик (находится по названию или создаётся) или сотрудник */
+  supplier?: string | null;
+  recipient?: string | null;
+};
+/** операция, удалённая в LiveSklad: в CRM помечается удалённой (сумма обнуляется, исходная сохраняется) */
+export type HistDeleted = { at: string; amount: number };
+export type HistoryData = { orders?: HistOrder[]; sales?: HistSale[]; cash?: HistCash[]; deleted?: HistDeleted[] };
 export type HistoryReport = {
   orders: number;
   sales: number;
@@ -65,6 +82,10 @@ export type HistoryReport = {
   cash: number;
   cashSum: number;
   skippedCash: number;
+  /** у уже перенесённых операций исправлена касса */
+  relinked: number;
+  deleted: number;
+  cashboxes: string[];
   errors: string[];
 };
 
@@ -113,14 +134,38 @@ function check(data: HistoryData) {
 export async function importHistory(t: Tenant, data: HistoryData, o: { locationId: string; userId: string; dryRun: boolean }): Promise<HistoryReport> {
   check(data);
   const { db, companyId } = t;
-  const rep: HistoryReport = { orders: 0, sales: 0, skippedOrders: [], skippedSales: [], clients: 0, products: 0, orderPaid: 0, salesPaid: 0, returns: 0, cash: 0, cashSum: 0, skippedCash: 0, errors: [] };
+  const rep: HistoryReport = { orders: 0, sales: 0, skippedOrders: [], skippedSales: [], clients: 0, products: 0, orderPaid: 0, salesPaid: 0, returns: 0, cash: 0, cashSum: 0, skippedCash: 0, relinked: 0, deleted: 0, cashboxes: [], errors: [] };
   const users = await db.user.findMany({ select: { id: true, name: true } });
   const userId = userMatcher(users);
-  const cashboxId = await defaultCashboxId(db, o.locationId);
+  const defaultBox = await defaultCashboxId(db, o.locationId);
+  const boxes = new Map((await db.cashbox.findMany({ select: { id: true, name: true } })).map((b) => [b.name.trim().toLowerCase(), b.id]));
+  /** касса по названию из LiveSklad; новой кассы нет — создаётся (при проверке только считается) */
+  async function boxId(name: string | null | undefined) {
+    const n = name?.trim();
+    if (!n) return defaultBox;
+    const have = boxes.get(n.toLowerCase());
+    if (have) return have;
+    rep.cashboxes.push(n);
+    if (o.dryRun) {
+      boxes.set(n.toLowerCase(), defaultBox);
+      return defaultBox;
+    }
+    const b = await db.cashbox.create({ data: { companyId, locationId: o.locationId, name: n.slice(0, 100) } });
+    boxes.set(n.toLowerCase(), b.id);
+    return b.id;
+  }
+  /** перенести уже существующие операции в нужную кассу */
+  async function relink(ids: string[], cashboxId: string) {
+    if (!ids.length) return;
+    const r = await db.cashTransaction.updateMany({ where: { id: { in: ids }, cashboxId: { not: cashboxId } }, data: { cashboxId } });
+    rep.relinked += r.count;
+  }
   const statuses = await db.orderStatus.findMany({ orderBy: { sort: "asc" } });
   const statusFor = (k: StatusKind) => statuses.find((s) => s.kind === k)?.id;
-  const haveOrders = new Set((await db.order.findMany({ select: { number: true } })).map((x) => x.number));
-  const haveSales = new Set((await db.sale.findMany({ where: { isReturn: false }, select: { number: true } })).map((x) => x.number));
+  const orderIds = new Map((await db.order.findMany({ select: { id: true, number: true } })).map((x) => [x.number, x.id]));
+  const haveOrders = new Set(orderIds.keys());
+  const saleIds = new Map((await db.sale.findMany({ select: { id: true, number: true } })).map((x) => [x.number, x.id]));
+  const haveSales = new Set([...saleIds.keys()].filter((n) => n < RETURN_BASE));
   const sources = new Map((await db.adSource.findMany()).map((s) => [s.name.toLowerCase(), s.id]));
   const clients = new Map((await db.client.findMany({ select: { id: true, phone: true } })).map((c) => [c.phone, c.id]));
 
@@ -151,6 +196,17 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
   for (const h of data.orders ?? []) {
     if (haveOrders.has(h.number)) {
       rep.skippedOrders.push(h.number);
+      // заказ уже перенесён: разнести его оплаты по кассам
+      if (o.dryRun) for (const p of h.payments) await boxId(p.cashbox);
+      else if (h.payments.some((p) => p.cashbox)) {
+        const txs = await db.cashTransaction.findMany({ where: { orderId: orderIds.get(h.number)! }, select: { id: true, amount: true, createdAt: true } });
+        for (const p of h.payments) {
+          if (!p.cashbox) continue;
+          const at = date(p.at)?.getTime();
+          const hit = txs.filter((x) => x.amount === kop(p.amount) && (at == null || x.createdAt.getTime() === at)).map((x) => x.id);
+          await relink(hit, await boxId(p.cashbox));
+        }
+      }
       continue;
     }
     const statusId = statusFor(h.status) ?? statusFor("NEW");
@@ -171,6 +227,8 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
       const notes = [h.notes, !masterId && h.master ? `Мастер в LiveSklad: ${h.master}` : null, !managerId && h.manager ? `Менеджер в LiveSklad: ${h.manager}` : null]
         .filter(Boolean)
         .join("\n");
+      const payBoxes: string[] = [];
+      for (const p of h.payments) payBoxes.push(await boxId(p.cashbox));
       await db.$transaction(async (tx) => {
         const order = await tx.order.create({
           data: {
@@ -214,14 +272,14 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
             },
           });
         }
-        for (const p of h.payments) {
+        for (const [pi, p] of h.payments.entries()) {
           const amount = kop(p.amount);
           if (!amount) continue;
           await tx.cashTransaction.create({
             data: {
               companyId,
               locationId: o.locationId,
-              cashboxId,
+              cashboxId: payBoxes[pi],
               userId: o.userId,
               orderId: order.id,
               amount,
@@ -265,6 +323,18 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
   for (const s of data.sales ?? []) {
     if (haveSales.has(s.number)) {
       rep.skippedSales.push(s.number);
+      // чек уже перенесён: оплаты и возврат — в кассу чека
+      if (o.dryRun) await boxId(s.cashbox);
+      else if (s.cashbox) {
+        const box = await boxId(s.cashbox);
+        const own = await db.cashTransaction.findMany({ where: { saleId: saleIds.get(s.number)! }, select: { id: true } });
+        await relink(own.map((x) => x.id), box);
+        const retId = saleIds.get(RETURN_BASE + s.number);
+        if (retId) {
+          const ret = await db.cashTransaction.findMany({ where: { saleId: retId }, select: { id: true } });
+          await relink(ret.map((x) => x.id), s.returned?.cashbox ? await boxId(s.returned.cashbox) : box);
+        }
+      }
       continue;
     }
     const sub = s.items.reduce((a, i) => a + kop(i.price) * i.qty, 0);
@@ -288,6 +358,8 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
       // себестоимость: из валовой прибыли чека, по позициям пропорционально цене
       const costTotal = s.profit != null && sub > 0 ? Math.max(0, total - kop(s.profit)) : 0;
       const seller = userId(s.user);
+      const saleBox = await boxId(s.cashbox);
+      const retBox = s.returned?.cashbox ? await boxId(s.returned.cashbox) : saleBox;
       await db.$transaction(async (tx) => {
         const sale = await tx.sale.create({
           data: { companyId, locationId: o.locationId, number: s.number, clientId: cid, userId: seller ?? o.userId, total, discount, createdAt },
@@ -315,14 +387,14 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
             data: {
               companyId,
               locationId: o.locationId,
-              cashboxId,
+              cashboxId: saleBox,
               userId: seller ?? o.userId,
               saleId: sale.id,
               amount,
               method: payMethod(p.method),
               category: amount < 0 ? "Возврат продажи" : "Продажа",
               comment: [`Продажа №${s.number} (перенос из LiveSklad)`, !seller && s.user ? `кассир ${s.user}` : null, s.comment].filter(Boolean).join(", "),
-              createdAt,
+              createdAt: date(p.at) ?? createdAt,
             },
           });
         }
@@ -341,7 +413,7 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
             data: {
               companyId,
               locationId: o.locationId,
-              cashboxId,
+              cashboxId: retBox,
               userId: seller ?? o.userId,
               saleId: ret.id,
               amount: -refund,
@@ -363,29 +435,91 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
 
   // прочие движения денег; повтор узнаётся по дате, сумме и статье
   if (data.cash?.length) {
-    const seen = new Set(
-      (await db.cashTransaction.findMany({ where: { orderId: null, saleId: null }, select: { createdAt: true, amount: true, category: true } })).map(
-        (x) => `${x.createdAt.getTime()}|${x.amount}|${x.category}`,
-      ),
-    );
+    const old = await db.cashTransaction.findMany({
+      where: { orderId: null, saleId: null },
+      select: { id: true, createdAt: true, amount: true, origAmount: true, deletedAt: true, category: true, transferId: true, cashboxId: true },
+    });
+    // уже перенесённые: ключ — дата, сумма и статья (у удалённых — исходная сумма)
+    const seen = new Map<string, typeof old>();
+    for (const x of old) {
+      const k = `${x.createdAt.getTime()}|${x.deletedAt ? (x.origAmount ?? 0) : x.amount}|${x.category}`;
+      seen.set(k, [...(seen.get(k) ?? []), x]);
+    }
+    const used = new Set<string>();
+    const transfers = new Map<string, string>();
+    const suppliers = new Map((await db.supplier.findMany({ select: { id: true, name: true } })).map((x) => [x.name.trim().toLowerCase(), x.id]));
+    async function supplierId(name: string | null | undefined) {
+      const n = name?.trim();
+      if (!n || o.dryRun) return null;
+      const have = suppliers.get(n.toLowerCase());
+      if (have) return have;
+      const s = await db.supplier.create({ data: { companyId, name: n.slice(0, 200) } });
+      suppliers.set(n.toLowerCase(), s.id);
+      return s.id;
+    }
     for (const c of data.cash) {
       const at = date(c.at);
       const amount = kop(c.amount);
       if (!at || !amount) continue;
       const category = (c.category || "Прочее").slice(0, 100);
       const key = `${at.getTime()}|${amount}|${category}`;
-      if (seen.has(key)) {
+      const twin = (seen.get(key) ?? []).find((x) => !used.has(x.id));
+      if (twin) {
+        used.add(twin.id);
         rep.skippedCash++;
+        if (o.dryRun) await boxId(c.cashbox);
+        else if (c.cashbox || c.transferKey) {
+          const data: { cashboxId?: string; transferId?: string } = {};
+          const box = await boxId(c.cashbox);
+          if (c.cashbox && twin.cashboxId !== box) data.cashboxId = box;
+          if (c.transferKey && !twin.transferId) data.transferId = transfers.get(c.transferKey) ?? crypto.randomUUID();
+          if (data.transferId) transfers.set(c.transferKey!, data.transferId);
+          if (Object.keys(data).length) {
+            await db.cashTransaction.update({ where: { id: twin.id }, data });
+            rep.relinked++;
+          }
+        }
         continue;
       }
-      seen.add(key);
       rep.cash++;
       rep.cashSum += amount;
-      if (o.dryRun) continue;
+      if (o.dryRun) {
+        await boxId(c.cashbox);
+        continue;
+      }
+      let transferId: string | null = null;
+      if (c.transferKey) {
+        transferId = transfers.get(c.transferKey) ?? crypto.randomUUID();
+        transfers.set(c.transferKey, transferId);
+      }
       await db.cashTransaction.create({
-        data: { companyId, locationId: o.locationId, cashboxId, userId: o.userId, amount, method: payMethod(c.method), category, comment: c.comment?.slice(0, 500) || "Перенос из LiveSklad", createdAt: at },
+        data: {
+          companyId,
+          locationId: o.locationId,
+          cashboxId: await boxId(c.cashbox),
+          userId: o.userId,
+          amount,
+          method: payMethod(c.method),
+          category,
+          comment: c.comment?.slice(0, 500) || "Перенос из LiveSklad",
+          createdAt: at,
+          transferId,
+          supplierId: await supplierId(c.supplier),
+          recipientId: userId(c.recipient),
+        },
       });
     }
+  }
+
+  // удалённые в LiveSklad операции: в CRM помечаются удалёнными, как при удалении вручную
+  for (const d of data.deleted ?? []) {
+    const at = date(d.at);
+    const amount = kop(d.amount);
+    if (!at || !amount) continue;
+    const hit = await db.cashTransaction.findFirst({ where: { createdAt: at, amount, deletedAt: null } });
+    if (!hit) continue;
+    rep.deleted++;
+    if (!o.dryRun) await db.cashTransaction.update({ where: { id: hit.id }, data: { deletedAt: new Date(), origAmount: hit.amount, amount: 0 } });
   }
 
   if (!o.dryRun) {

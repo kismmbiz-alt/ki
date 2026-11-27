@@ -53,6 +53,13 @@ export function HistoryForm() {
           <div>
             Новых клиентов: <b>{r.clients}</b>, новых товаров в справочнике: <b>{r.products}</b>
           </div>
+          {(r.cashboxes?.length > 0 || r.relinked > 0 || r.deleted > 0) && (
+            <div>
+              {r.cashboxes?.length > 0 && <>Новых касс: <b>{r.cashboxes.length}</b> ({r.cashboxes.join(", ")}). </>}
+              {r.relinked > 0 && <>Разнесено по кассам ранее перенесённых операций: <b>{r.relinked}</b>. </>}
+              {r.deleted > 0 && <>Помечено удалёнными (удалены в LiveSklad): <b>{r.deleted}</b>.</>}
+            </div>
+          )}
           {(r.skippedOrders.length > 0 || r.skippedSales.length > 0 || r.skippedCash > 0) && (
             <div className="text-xs">
               Уже были, пропущены: заказов {r.skippedOrders.length}, продаж {r.skippedSales.length}, движений денег {r.skippedCash}

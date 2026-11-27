@@ -100,4 +100,49 @@ describe("перенос истории из LiveSklad", () => {
     const company = await t.db.company.findUniqueOrThrow({ where: { id: a.company.id } });
     expect(company).toMatchObject({ orderSeq: 188, saleSeq: 2061 });
   });
+
+  it("кассы LiveSklad: новые операции в своих кассах, старые разносятся, переводы связываются, удалённые помечаются", async () => {
+    const a = await createCompany({ companyName: "Б", ownerName: "Кирилл Иванов", email: `k-${uniq()}@test.ru`, password: "password123" });
+    const t = tenant(a.company.id);
+    const o = { locationId: a.location.id, userId: a.owner.id, dryRun: false };
+    // сначала перенос без касс, как в октябре
+    await importHistory(t, data, o);
+    const withBoxes: HistoryData = {
+      orders: data.orders!.map((x) => ({ ...x, payments: x.payments.map((p) => ({ ...p, cashbox: "Ремонт" })) })),
+      sales: data.sales!.map((x) => ({ ...x, cashbox: "Б/У Техника" })),
+      cash: [
+        { ...data.cash![0], cashbox: "Касса" },
+        { ...data.cash![1], cashbox: "Инвест", transferKey: "t1" },
+        { at: "2026-10-21T18:19:00+05:00", amount: -60000, method: "Наличными", category: "Перемещение денег из кассы", cashbox: "Касса", transferKey: "t1" },
+        { at: "2026-09-30T23:59:00+05:00", amount: 1721.15, method: "Наличными", category: "Начальный остаток", cashbox: "Касса" },
+        { at: "2026-11-20T15:00:00+05:00", amount: -104.77, method: "Наличными", category: "Оплата за товар поставщику", cashbox: "Касса", supplier: "Мой склад УФА" },
+      ],
+      deleted: [{ at: "2026-10-31T23:59:00+05:00", amount: -5000 }],
+    };
+    const dry = await importHistory(t, withBoxes, { ...o, dryRun: true });
+    expect(dry).toMatchObject({ cash: 3, skippedCash: 2, deleted: 1, relinked: 0 });
+    expect(dry.cashboxes.sort()).toEqual(["Инвест", "Касса", "Ремонт", "Б/У Техника"].sort());
+    expect(await t.db.cashbox.count()).toBe(1);
+
+    const rep = await importHistory(t, withBoxes, o);
+    expect(rep).toMatchObject({ orders: 0, sales: 0, cash: 3, skippedCash: 2, deleted: 1, errors: [] });
+    expect(rep.relinked).toBe(6); // оплата заказа, две продажи, возврат, расход, перемещение
+    const boxes = new Map((await t.db.cashbox.findMany()).map((b) => [b.name, b.id]));
+    const order = await t.db.order.findFirstOrThrow({ include: { payments: true } });
+    expect(order.payments[0].cashboxId).toBe(boxes.get("Ремонт"));
+    const ret = await t.db.sale.findFirstOrThrow({ where: { isReturn: true }, include: { transactions: true } });
+    expect(ret.transactions[0].cashboxId).toBe(boxes.get("Б/У Техника"));
+    const tr = await t.db.cashTransaction.findMany({ where: { transferId: { not: null } } });
+    expect(tr).toHaveLength(2);
+    expect(new Set(tr.map((x) => x.transferId)).size).toBe(1);
+    const sup = await t.db.cashTransaction.findFirstOrThrow({ where: { category: "Оплата за товар поставщику" }, include: { } });
+    expect(sup.supplierId).toBeTruthy();
+    const del = await t.db.cashTransaction.findFirstOrThrow({ where: { category: "Выплата заработной платы" } });
+    expect(del).toMatchObject({ amount: 0, origAmount: -500000 });
+    expect(del.deletedAt).toBeTruthy();
+
+    // повтор ничего не меняет
+    const again = await importHistory(t, withBoxes, o);
+    expect(again).toMatchObject({ cash: 0, skippedCash: 5, relinked: 0, deleted: 0, cashboxes: [] });
+  });
 });
