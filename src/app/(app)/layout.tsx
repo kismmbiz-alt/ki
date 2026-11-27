@@ -9,6 +9,7 @@ import {
   Moon,
   Package,
   Settings,
+  ShieldCheck,
   ShoppingCart,
   Sun,
   Users,
@@ -18,10 +19,11 @@ import {
 import { can, requireUser, ROLE_LABEL } from "@/lib/auth";
 import { logout } from "../(auth)/actions";
 import { switchLocation, toggleTheme } from "./actions";
+import { endSupportAction } from "./platform/actions";
 import { SideNav, type SubItem } from "@/components/side-nav";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const { user, company, locations, location } = await requireUser();
+  const { user, company, locations, location, platformAdmin, support } = await requireUser();
   const dark = (await cookies()).get("theme")?.value !== "light";
   const role = user.role;
   const I = { size: 18, strokeWidth: 1.8 };
@@ -115,6 +117,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         { href: "/settings/catalog", label: "Прайс и источники", show: has("settings") },
       ]),
     },
+    {
+      href: "/platform",
+      label: "Платформа",
+      icon: <ShieldCheck {...I} />,
+      show: platformAdmin && !support,
+      children: [
+        { href: "/platform", label: "Стабильность", exact: true },
+        { href: "/platform/companies", label: "Компании" },
+        { href: "/platform/invites", label: "Приглашения" },
+        { href: "/platform/support", label: "Журнал поддержки" },
+      ],
+    },
   ]
     .filter((n) => n.show)
     .map(({ show: _show, ...n }) => n);
@@ -181,7 +195,21 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
         </div>
       </aside>
-      <main className="min-w-0 flex-1 bg-slate-50 p-4 md:p-6">{children}</main>
+      <main className="min-w-0 flex-1 bg-slate-50 p-4 md:p-6">
+        {support && (
+          <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <span>
+              <b>Режим поддержки:</b> вы внутри мастерской «{support.companyName}» —{" "}
+              {support.write ? "можно вносить изменения" : "только просмотр"}. Доступ до{" "}
+              {support.until.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}. Вход записан в журнал.
+            </span>
+            <form action={endSupportAction}>
+              <button className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-[#fff] hover:bg-red-700">Выйти из мастерской</button>
+            </form>
+          </div>
+        )}
+        {children}
+      </main>
     </div>
   );
 }

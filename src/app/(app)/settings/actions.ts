@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import type { Role, StatusKind } from "@prisma/client";
-import { hashPassword, newTotpSecret, requirePermission, requireUser, verifyPassword, verifyTotp } from "@/lib/auth";
+import { denyInSupport, hashPassword, newTotpSecret, requirePermission, requireUser, verifyPassword, verifyTotp } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { int, opt, safe, str } from "@/lib/action";
 import { toKop } from "@/lib/money";
@@ -38,7 +38,9 @@ export const saveRequisitesAction = safe(async (fd) => {
 });
 
 export const changePasswordAction = safe(async (fd) => {
-  const { user } = await requireUser();
+  const ctx = await requireUser();
+  denyInSupport(ctx);
+  const { user } = ctx;
   if (!(await verifyPassword(str(fd, "current"), user.passwordHash))) throw new Error("Текущий пароль неверный");
   const next = str(fd, "next");
   if (next.length < 8) throw new Error("Новый пароль должен быть не короче 8 символов");
@@ -49,14 +51,18 @@ export const changePasswordAction = safe(async (fd) => {
 });
 
 export const start2faAction = safe(async () => {
-  const { user } = await requireUser();
+  const ctx = await requireUser();
+  denyInSupport(ctx);
+  const { user } = ctx;
   if (user.totpEnabled) throw new Error("2FA уже включена");
   await prisma.user.update({ where: { id: user.id }, data: { totpSecret: newTotpSecret() } });
   revalidatePath("/settings");
 });
 
 export const confirm2faAction = safe(async (fd) => {
-  const { user, session } = await requireUser();
+  const ctx = await requireUser();
+  denyInSupport(ctx);
+  const { user, session } = ctx;
   if (!user.totpSecret || !verifyTotp(user.totpSecret, str(fd, "code"))) throw new Error("Неверный код, попробуйте ещё раз");
   await prisma.user.update({ where: { id: user.id }, data: { totpEnabled: true } });
   await prisma.session.update({ where: { id: session.id }, data: { twoFactorOk: true } });
@@ -65,7 +71,9 @@ export const confirm2faAction = safe(async (fd) => {
 });
 
 export const disable2faAction = safe(async (fd) => {
-  const { user } = await requireUser();
+  const ctx = await requireUser();
+  denyInSupport(ctx);
+  const { user } = ctx;
   if (!user.totpSecret || !verifyTotp(user.totpSecret, str(fd, "code"))) throw new Error("Неверный код");
   await prisma.user.update({ where: { id: user.id }, data: { totpEnabled: false, totpSecret: null } });
   revalidatePath("/settings");
@@ -100,6 +108,7 @@ async function positionFrom(db: Awaited<ReturnType<typeof requirePermission>>["d
 
 export const createUserAction = safe(async (fd) => {
   const ctx = await requirePermission("users");
+  denyInSupport(ctx);
   const pos = await positionFrom(ctx.db, fd);
   if (pos.role === "OWNER") throw new Error("Недопустимая должность");
   const email = str(fd, "email").toLowerCase();
@@ -127,6 +136,7 @@ export const createUserAction = safe(async (fd) => {
 
 export const updateUserAction = safe(async (fd) => {
   const ctx = await requirePermission("users");
+  denyInSupport(ctx);
   const id = str(fd, "id");
   const target = await ctx.db.user.findUniqueOrThrow({ where: { id } });
   const isSelf = target.id === ctx.user.id;

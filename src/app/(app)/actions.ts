@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser, setSessionLocation } from "@/lib/auth";
 
 export async function switchLocation(fd: FormData) {
-  const ctx = await requireUser();
+  const ctx = await requireUser({ allowInReadOnlySupport: true });
   const id = String(fd.get("locationId") ?? "");
   if (ctx.user.locationId) return;
   // точка должна принадлежать компании пользователя

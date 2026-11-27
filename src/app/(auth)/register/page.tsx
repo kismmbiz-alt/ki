@@ -1,17 +1,27 @@
 import Link from "next/link";
 import { Form, Submit } from "@/components/form";
 import { Field, Input } from "@/components/ui";
+import { validInvite } from "@/lib/platform/invites";
 import { register } from "../actions";
 
 export const dynamic = "force-dynamic";
 
-export default function RegisterPage() {
-  const needCode = !!process.env.REGISTRATION_CODE;
+export default async function RegisterPage({ searchParams }: { searchParams: Promise<{ invite?: string }> }) {
+  const { invite: token } = await searchParams;
+  const invite = await validInvite(token);
+  const needCode = !invite && !!process.env.REGISTRATION_CODE;
   return (
     <>
       <h1 className="mb-1 text-lg font-semibold">Регистрация мастерской</h1>
       <p className="mb-4 text-sm text-slate-500">Создаётся отдельная компания. Её данные видят только её сотрудники.</p>
+      {token && !invite && (
+        <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Эта ссылка-приглашение уже использована или устарела. Попросите новую или введите код приглашения.
+        </p>
+      )}
+      {invite && <p className="mb-3 rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">Вас пригласили в ТехноСкупку. Заполните форму — код не нужен.</p>}
       <Form action={register} className="space-y-3" resetOnOk={false}>
+        {invite && <input type="hidden" name="invite" value={invite.token} />}
         {needCode && (
           <Field label="Код приглашения" hint="выдаёт владелец системы">
             <Input name="inviteCode" required />

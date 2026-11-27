@@ -1,15 +1,26 @@
 import QRCode from "qrcode";
 import { can, requireUser, totpUri } from "@/lib/auth";
-import { Card, Field, Input, PageHeader, Textarea } from "@/components/ui";
+import { Card, dt, Field, Input, PageHeader, Select, Textarea } from "@/components/ui";
 import { Form, Submit } from "@/components/form";
 import { logout } from "../../(auth)/actions";
+import { prisma } from "@/lib/db";
+import { grantSupportAction, revokeSupportAction } from "../platform/actions";
 import { SettingsTabs } from "./tabs";
 import { changePasswordAction, confirm2faAction, disable2faAction, saveCompanyAction, saveRequisitesAction, start2faAction } from "./actions";
 
 export default async function SettingsPage() {
-  const { user, company } = await requireUser();
+  const { user, company, support } = await requireUser();
   const admin = can(user, "settings");
-  const qr = user.totpSecret && !user.totpEnabled ? await QRCode.toDataURL(totpUri(user.email, user.totpSecret)) : null;
+  const isOwner = user.role === "OWNER" && !support;
+  const supportOpen = !!company.supportUntil && company.supportUntil > new Date();
+  const supportLogs = isOwner
+    ? await prisma.supportLog.findMany({
+        where: { companyId: company.id },
+        orderBy: { startedAt: "desc" },
+        take: 5,
+      })
+    : [];
+  const qr = !support && user.totpSecret && !user.totpEnabled ? await QRCode.toDataURL(totpUri(user.email, user.totpSecret)) : null;
 
   return (
     <>
@@ -108,46 +119,95 @@ export default async function SettingsPage() {
             </Form>
           </Card>
         )}
-        <Card title="Мой пароль">
-          <Form action={changePasswordAction} className="space-y-3">
-            <Field label="Текущий пароль">
-              <Input name="current" type="password" required />
-            </Field>
-            <Field label="Новый пароль">
-              <Input name="next" type="password" required minLength={8} />
-            </Field>
-            <Submit variant="secondary">Сменить пароль</Submit>
-          </Form>
-        </Card>
-        <Card title="Двухфакторная защита входа">
-          {user.totpEnabled ? (
-            <Form action={disable2faAction} className="space-y-3">
-              <p className="text-sm text-green-700">Включена. При входе нужен код из приложения.</p>
-              <Field label="Чтобы выключить, введите код">
-                <Input name="code" inputMode="numeric" required />
+        {isOwner && (
+          <Card title="Доступ поддержки">
+            <p className="mb-3 text-sm text-slate-600">
+              Если нужна помощь, откройте поддержке ТехноСкупки доступ к вашей CRM на время. Без этого поддержка видит только общие цифры (сколько
+              сотрудников и заказов), но не ваших клиентов, заказы и деньги. Каждый вход записывается в журнал действий.
+            </p>
+            {supportOpen ? (
+              <Form action={revokeSupportAction} className="space-y-2" resetOnOk={false}>
+                <p className="text-sm text-green-700">
+                  Открыт до {dt(company.supportUntil)}, {company.supportWrite ? "можно вносить изменения" : "только просмотр"}.
+                </p>
+                <Submit variant="danger">Закрыть доступ</Submit>
+              </Form>
+            ) : (
+              <Form action={grantSupportAction} className="space-y-3" resetOnOk={false}>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="На сколько">
+                    <Select name="hours" defaultValue="24">
+                      <option value="2">2 часа</option>
+                      <option value="24">1 день</option>
+                      <option value="72">3 дня</option>
+                      <option value="168">7 дней</option>
+                    </Select>
+                  </Field>
+                  <Field label="Что можно">
+                    <Select name="write" defaultValue="0">
+                      <option value="0">Только смотреть</option>
+                      <option value="1">Смотреть и исправлять</option>
+                    </Select>
+                  </Field>
+                </div>
+                <Submit variant="secondary">Открыть доступ</Submit>
+              </Form>
+            )}
+            {supportLogs.length > 0 && (
+              <ul className="mt-3 space-y-1 border-t border-slate-100 pt-3 text-xs text-slate-500">
+                {supportLogs.map((l) => (
+                  <li key={l.id}>
+                    {dt(l.startedAt)} — {l.adminName}: {l.reason} {l.endedAt ? "" : "(сейчас внутри)"}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        )}
+        {!support && (
+          <Card title="Мой пароль">
+            <Form action={changePasswordAction} className="space-y-3">
+              <Field label="Текущий пароль">
+                <Input name="current" type="password" required />
               </Field>
-              <Submit variant="danger">Выключить 2FA</Submit>
-            </Form>
-          ) : qr ? (
-            <Form action={confirm2faAction} className="space-y-3">
-              <p className="text-sm text-slate-600">
-                Отсканируйте код в Яндекс Ключе, Google Authenticator или другом приложении и введите 6 цифр.
-              </p>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={qr} alt="QR-код для приложения" className="h-44 w-44" />
-              <p className="break-all text-xs text-slate-400">Ключ: {user.totpSecret}</p>
-              <Field label="Код из приложения">
-                <Input name="code" inputMode="numeric" required />
+              <Field label="Новый пароль">
+                <Input name="next" type="password" required minLength={8} />
               </Field>
-              <Submit>Включить</Submit>
+              <Submit variant="secondary">Сменить пароль</Submit>
             </Form>
-          ) : (
-            <Form action={start2faAction} className="space-y-3">
-              <p className="text-sm text-slate-600">Защитит аккаунт, даже если пароль узнают. Рекомендуется владельцу.</p>
-              <Submit variant="secondary">Настроить 2FA</Submit>
-            </Form>
-          )}
-        </Card>
+          </Card>
+        )}
+        {!support && (
+          <Card title="Двухфакторная защита входа">
+            {user.totpEnabled ? (
+              <Form action={disable2faAction} className="space-y-3">
+                <p className="text-sm text-green-700">Включена. При входе нужен код из приложения.</p>
+                <Field label="Чтобы выключить, введите код">
+                  <Input name="code" inputMode="numeric" required />
+                </Field>
+                <Submit variant="danger">Выключить 2FA</Submit>
+              </Form>
+            ) : qr ? (
+              <Form action={confirm2faAction} className="space-y-3">
+                <p className="text-sm text-slate-600">
+                  Отсканируйте код в Яндекс Ключе, Google Authenticator или другом приложении и введите 6 цифр.
+                </p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={qr} alt="QR-код для приложения" className="h-44 w-44" />
+                <p className="break-all text-xs text-slate-400">Ключ: {user.totpSecret}</p>
+                <Field label="Код из приложения">
+                  <Input name="code" inputMode="numeric" required />
+                </Field>
+                <Submit>Включить</Submit>
+              </Form>
+            ) : (
+              <Form action={start2faAction} className="space-y-3">
+                <p className="text-sm text-slate-600">Защитит аккаунт, даже если пароль узнают. Рекомендуется владельцу.</p>
+                <Submit variant="secondary">Настроить 2FA</Submit>
+              </Form>
+            )}
+          </Card>
+        )}
       </div>
     </>
   );

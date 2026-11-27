@@ -70,19 +70,19 @@ enum StockDocType {
 }
 
 model Company {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   name          String
   phone         String?
   address       String?
   receiptTerms  String? // текст условий в квитанции
-  warrantyDays  Int      @default(30)
-  orderSeq      Int      @default(0)
-  saleSeq       Int      @default(0)
-  docSeq        Int      @default(0)
-  marketMargin  Int      @default(500000) // сколько хотим заработать на выкупе, коп.
-  bonusFixed    Int      @default(0) // бонус сотруднику за каждый выкуп, коп.
-  bonusPercent  Int      @default(0) // бонус в % от прибыли после продажи выкупленного
-  avitoRegion   String   @default("rossiya") // регион Авито для оценки: часть ссылки avito.ru/<регион>
+  warrantyDays  Int       @default(30)
+  orderSeq      Int       @default(0)
+  saleSeq       Int       @default(0)
+  docSeq        Int       @default(0)
+  marketMargin  Int       @default(500000) // сколько хотим заработать на выкупе, коп.
+  bonusFixed    Int       @default(0) // бонус сотруднику за каждый выкуп, коп.
+  bonusPercent  Int       @default(0) // бонус в % от прибыли после продажи выкупленного
+  avitoRegion   String    @default("rossiya") // регион Авито для оценки: часть ссылки avito.ru/<регион>
   // реквизиты (подставляются в печатные формы)
   email         String?
   inn           String?
@@ -98,15 +98,19 @@ model Company {
   corrAccount   String?
   account       String?
   companyNote   String? // доп. информация для бланков
-  currency      String   @default("RUB")
+  currency      String    @default("RUB")
   // цены
-  salePriceKey  String   @default("retail") // какая цена ставится в продаже
-  orderPriceKey String   @default("repair") // какая цена ставится в заказе
-  hideMinPrice  Boolean  @default(false)
+  salePriceKey  String    @default("retail") // какая цена ставится в продаже
+  orderPriceKey String    @default("repair") // какая цена ставится в заказе
+  hideMinPrice  Boolean   @default(false)
   // статусы
-  statusChains  Boolean  @default(false) // переходы только по цепочке
-  barcodeSeq    Int      @default(0)
-  createdAt     DateTime @default(now())
+  statusChains  Boolean   @default(false) // переходы только по цепочке
+  barcodeSeq    Int       @default(0)
+  // платформа: доступ поддержки и приостановка
+  supportUntil  DateTime? // до какого времени поддержка может войти в CRM
+  supportWrite  Boolean   @default(false) // поддержке разрешено вносить изменения
+  blockedAt     DateTime? // доступ приостановлен владельцем платформы
+  createdAt     DateTime  @default(now())
 
   locations      Location[]
   users          User[]
@@ -138,6 +142,7 @@ model Company {
   actionLogs     ActionLog[]
   marketPrices   MarketSnapshot[]
   priceTypes     PriceType[]
+  supportLogs    SupportLog[]
   productPrices  ProductPrice[]
   printTemplates PrintTemplate[]
   salaryRules    SalaryRule[]
@@ -199,6 +204,7 @@ model User {
   totpSecret       String?
   totpEnabled      Boolean   @default(false)
   isActive         Boolean   @default(true)
+  lastSeenAt       DateTime? // последний раз заходил в CRM
   createdAt        DateTime  @default(now())
 
   company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -222,12 +228,13 @@ model User {
 }
 
 model Session {
-  id          String   @id // sha256 от токена из cookie
-  userId      String
-  twoFactorOk Boolean  @default(false)
-  locationId  String? // выбранная точка
-  expiresAt   DateTime
-  createdAt   DateTime @default(now())
+  id           String   @id // sha256 от токена из cookie
+  userId       String
+  twoFactorOk  Boolean  @default(false)
+  locationId   String? // выбранная точка
+  supportLogId String? // владелец платформы сейчас в режиме поддержки чужой компании
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -953,4 +960,58 @@ model SalaryEntry {
   user    User    @relation(fields: [companyId, userId], references: [companyId, id], onDelete: Cascade)
 
   @@index([companyId, userId, date])
+}
+
+// ---- Платформа (видит только владелец сервиса) ----
+
+// Вход владельца платформы в данные компании с её разрешения (152-ФЗ: каждый вход записывается).
+model SupportLog {
+  id        String    @id @default(cuid())
+  companyId String
+  adminId   String // пользователь — владелец платформы
+  adminName String
+  write     Boolean   @default(false) // были ли разрешены изменения
+  reason    String?
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, startedAt])
+  @@index([startedAt])
+}
+
+// Одноразовые ссылки-приглашения для регистрации новой мастерской.
+model PlatformInvite {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  note      String? // кому выдано
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
+  companyId String? // какая компания зарегистрировалась по ссылке
+}
+
+// Проверка работы сайта раз в минуту.
+model HealthSample {
+  id    String   @id @default(cuid())
+  at    DateTime @default(now())
+  ok    Boolean
+  ms    Int // время ответа сайта
+  dbMs  Int? // время ответа базы
+  error String?
+
+  @@index([at])
+}
+
+// Ошибки сервера и запуски приложения.
+model PlatformEvent {
+  id      String   @id @default(cuid())
+  at      DateTime @default(now())
+  kind    String // error, start
+  message String
+  path    String?
+  detail  String?
+
+  @@index([kind, at])
 }

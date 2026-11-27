@@ -1,6 +1,6 @@
 import type { Tenant, Tx } from "../db";
 
-export type LogKind = "cash" | "sale" | "order" | "stock" | "settings" | "users" | "buyback";
+export type LogKind = "cash" | "sale" | "order" | "stock" | "settings" | "users" | "buyback" | "support";
 
 export const LOG_KIND_LABEL: Record<LogKind, string> = {
   cash: "Касса",
@@ -10,6 +10,7 @@ export const LOG_KIND_LABEL: Record<LogKind, string> = {
   buyback: "Скупка",
   settings: "Настройки",
   users: "Сотрудники",
+  support: "Поддержка",
 };
 
 /** Запись в журнал действий сотрудников. */
