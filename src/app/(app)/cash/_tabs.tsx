@@ -13,7 +13,6 @@ export async function CashTabs() {
           <NavLink href="/cash/operations">Все операции</NavLink>
         </>
       )}
-      {(can(user, "cash") || can(user, "users")) && <NavLink href="/cash/salary">Зарплата</NavLink>}
       {can(user, "journal") && <NavLink href="/cash/journal">Журнал действий</NavLink>}
     </div>
   );

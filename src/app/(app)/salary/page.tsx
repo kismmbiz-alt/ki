@@ -8,8 +8,7 @@ import { CashboxField } from "@/components/place-fields";
 import { rub } from "@/lib/money";
 import { placesFor } from "@/lib/domain/places";
 import { salarySheet } from "@/lib/domain/salary";
-import { addSalaryEntryAction, deleteSalaryEntryAction } from "../../settings/config-actions";
-import { CashTabs } from "../_tabs";
+import { addSalaryEntryAction, deleteSalaryEntryAction } from "../settings/config-actions";
 
 const KIND = { BONUS: "Бонус", FINE: "Штраф", PAYOUT: "Выплата" } as Record<string, string>;
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -38,14 +37,13 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
 
   return (
     <>
-      <PageHeader title="Финансы" />
-      <CashTabs />
+      <PageHeader title="Зарплата" />
       <div className="mb-4 flex items-center gap-3 text-sm">
-        <Link href={`/cash/salary?m=${mStr(prev)}${sp.user ? `&user=${sp.user}` : ""}`} className="rounded-md border border-slate-200 px-2 py-1 hover:bg-slate-100">
+        <Link href={`/salary?m=${mStr(prev)}${sp.user ? `&user=${sp.user}` : ""}`} className="rounded-md border border-slate-200 px-2 py-1 hover:bg-slate-100">
           ←
         </Link>
         <b className="capitalize">{from.toLocaleDateString("ru-RU", { month: "long", year: "numeric" })}</b>
-        <Link href={`/cash/salary?m=${mStr(next)}${sp.user ? `&user=${sp.user}` : ""}`} className="rounded-md border border-slate-200 px-2 py-1 hover:bg-slate-100">
+        <Link href={`/salary?m=${mStr(next)}${sp.user ? `&user=${sp.user}` : ""}`} className="rounded-md border border-slate-200 px-2 py-1 hover:bg-slate-100">
           →
         </Link>
       </div>
@@ -65,7 +63,7 @@ export default async function SalaryPage({ searchParams }: { searchParams: Promi
               {sheets.map((s) => (
                 <tr key={s.user.id} className={s.user.id === sp.user ? "bg-blue-50" : ""}>
                   <td className="px-2 py-2">
-                    <Link href={`/cash/salary?m=${month}&user=${s.user.id}`} className="text-blue-600 hover:underline">
+                    <Link href={`/salary?m=${month}&user=${s.user.id}`} className="text-blue-600 hover:underline">
                       {s.user.name}
                     </Link>
                   </td>

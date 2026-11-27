@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import {
+  BadgeRussianRuble,
   BookOpen,
   ChartColumn,
   HandCoins,
@@ -26,14 +27,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const I = { size: 18, strokeWidth: 1.8 };
   const nav = [
     { href: "/dashboard", label: "Главная", icon: <House {...I} />, show: true },
+    { href: "/sales", label: "Продажи", icon: <ShoppingCart {...I} />, show: can(user, "sales") },
     { href: "/orders", label: "Заказы", icon: <Wrench {...I} />, show: true },
     { href: "/clients", label: "Клиенты", icon: <Users {...I} />, show: true },
-    { href: "/market", label: "Рынок", icon: <HandCoins {...I} />, show: can(user, "buyback") || can(user, "marketSummary") },
-    { href: "/sales", label: "Продажи", icon: <ShoppingCart {...I} />, show: can(user, "sales") },
     { href: "/stock", label: "Склад", icon: <Package {...I} />, show: can(user, "stock") },
+    { href: "/market", label: "Рынок", icon: <HandCoins {...I} />, show: can(user, "buyback") || can(user, "marketSummary") },
     { href: can(user, "cash") ? "/cash" : "/cash/journal", label: "Финансы", icon: <Wallet {...I} />, show: can(user, "cash") || can(user, "journal") },
     { href: "/reports", label: "Аналитика", icon: <ChartColumn {...I} />, show: can(user, "reports") },
     { href: "/settings/dicts", label: "Справочники", icon: <BookOpen {...I} />, show: can(user, "settings") },
+    { href: "/salary", label: "Зарплата", icon: <BadgeRussianRuble {...I} />, show: can(user, "cash") || can(user, "users") },
     { href: "/settings", label: "Настройки", icon: <Settings {...I} />, show: true },
   ].filter((n) => n.show);
 

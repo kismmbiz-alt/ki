@@ -318,7 +318,7 @@ export const addSalaryEntryAction = safe(async (fd) => {
   await ctx.db.salaryEntry.create({ data: { companyId: ctx.company.id, userId, kind, amount, comment, date, cashTxId, createdById: ctx.user.id } });
   const label = { BONUS: "Бонус", FINE: "Штраф", PAYOUT: "Выплата зарплаты" }[kind];
   await logAction(ctx.db, { companyId: ctx.company.id, userId: ctx.user.id, kind: "users", text: `${label} сотруднику «${emp.name}»${comment ? `: ${comment}` : ""}`, amount: kind === "BONUS" ? amount : -amount });
-  revalidatePath("/cash/salary");
+  revalidatePath("/salary");
   return `${label} записан${kind === "PAYOUT" ? "а" : ""}`;
 });
 
@@ -327,6 +327,6 @@ export const deleteSalaryEntryAction = safe(async (fd) => {
   const e = await ctx.db.salaryEntry.findUniqueOrThrow({ where: { id: str(fd, "id") } });
   if (e.cashTxId) throw new Error("Выплата прошла через кассу — удалите операцию в кассе, если она ошибочная");
   await ctx.db.salaryEntry.delete({ where: { id: e.id } });
-  revalidatePath("/cash/salary");
+  revalidatePath("/salary");
   return "Удалено";
 });
