@@ -1,13 +1,13 @@
 import { can, requireUser } from "@/lib/auth";
 import { totals } from "@/lib/domain/orders";
-import { orderWhere, type OrderFilter } from "@/lib/domain/order-filter";
+import { hiddenStatusIds, orderWhere, type OrderFilter } from "@/lib/domain/order-filter";
 import { toCsv } from "@/lib/csv";
 
 /** Выгрузка списка заказов в CSV, который открывается в Excel. */
 export async function GET(req: Request) {
   const { db, user, location } = await requireUser();
   const sp = Object.fromEntries(new URL(req.url).searchParams) as OrderFilter;
-  const where = orderWhere(sp, { locationId: location?.id, onlyMasterId: can(user, "allOrders") ? undefined : user.id });
+  const where = orderWhere(sp, { locationId: location?.id, onlyMasterId: can(user, "allOrders") ? undefined : user.id, hideStatusIds: await hiddenStatusIds(db, user) });
   const list = await db.order.findMany({
     where,
     include: { client: true, status: true, master: true, manager: true, items: true, payments: { select: { amount: true } } },

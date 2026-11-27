@@ -42,7 +42,7 @@ export async function resolveWarehouse(tx: Db, locationId: string, warehouseId?:
 }
 
 /** Склады и кассы, доступные в точке. */
-export async function placesFor({ db }: Tenant, locationId?: string | null) {
+export async function placesFor({ db }: Tenant, locationId?: string | null, who?: { warehouseIds: string[]; cashboxIds: string[]; defaultCashboxId: string | null } | null) {
   const [warehouses, cashboxes] = await Promise.all([
     db.warehouse.findMany({ where: { isActive: true, ...(locationId ? { locationId } : {}) }, orderBy: [{ sort: "asc" }, { createdAt: "asc" }] }),
     db.cashbox.findMany({
@@ -50,7 +50,12 @@ export async function placesFor({ db }: Tenant, locationId?: string | null) {
       orderBy: [{ sort: "asc" }, { createdAt: "asc" }],
     }),
   ]);
-  return { warehouses, cashboxes };
+  if (!who) return { warehouses, cashboxes };
+  // ограничения из карточки сотрудника; касса по умолчанию — первой
+  const w = who.warehouseIds.length ? warehouses.filter((x) => who.warehouseIds.includes(x.id)) : warehouses;
+  let c = who.cashboxIds.length ? cashboxes.filter((x) => who.cashboxIds.includes(x.id)) : cashboxes;
+  if (who.defaultCashboxId) c = [...c].sort((a, b) => Number(b.id === who.defaultCashboxId) - Number(a.id === who.defaultCashboxId));
+  return { warehouses: w.length ? w : warehouses, cashboxes: c.length ? c : cashboxes };
 }
 
 /** Создаёт стандартные должности, если в компании их ещё нет. */

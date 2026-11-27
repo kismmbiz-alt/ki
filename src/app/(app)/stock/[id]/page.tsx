@@ -7,7 +7,7 @@ import { inventoryAction, receiveAction, updateProductAction } from "../actions"
 import { ProductFields } from "../_ui/product-fields";
 import { ensurePriceTypes } from "@/lib/domain/prices";
 import { barcodeSvg } from "@/lib/barcode";
-import Link from "next/link";
+import { templatesFor } from "@/lib/print/templates";
 
 const MOVE_LABEL: Record<string, string> = {
   RECEIPT: "Приход",
@@ -34,7 +34,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
     db.productGroup.findMany({ orderBy: { name: "asc" } }),
     db.supplier.findMany({ orderBy: { name: "asc" } }),
     ensurePriceTypes(db, company.id),
-    db.printTemplate.findMany({ where: { docType: "price_tag" }, orderBy: [{ sort: "asc" }, { name: "asc" }], select: { id: true, name: true } }),
+    templatesFor(db, company.id, ["price_tag"]),
   ]);
   const warehouses = await db.warehouse.findMany({ where: { isActive: true, locationId: location?.id }, orderBy: [{ sort: "asc" }, { createdAt: "asc" }] });
   if (!p) notFound();
@@ -83,14 +83,20 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
               {p.barcode && <div className="rounded bg-white p-2" dangerouslySetInnerHTML={{ __html: barcodeSvg(p.barcode, { width: 180, height: 40 }) }} />}
             </div>
             {tags.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3 text-sm">
-                <span className="text-slate-500">Печать ценника:</span>
-                {tags.map((t) => (
-                  <Link key={t.id} href={`/print/t/${t.id}?ids=${p.id}`} target="_blank" className="text-blue-600 hover:underline">
-                    {t.name}
-                  </Link>
-                ))}
-              </div>
+              <form action="/print/t" target="_blank" className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 text-sm">
+                <input type="hidden" name="products" value={p.id} />
+                <span className="text-slate-500">Ценник:</span>
+                <select name="tpl" defaultValue={tags.find((t) => t.isDefault)?.id} className="rounded-lg border border-slate-200 px-2 py-1.5">
+                  {tags.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                <input name="qty" type="number" min={1} max={500} defaultValue={Math.max(1, here)} className="w-20 rounded-lg border border-slate-200 px-2 py-1.5" title="Сколько штук" />
+                <span className="text-slate-500">шт.</span>
+                <button className="rounded-lg bg-[#4f6bff] px-3 py-1.5 font-medium on-accent">Печатать</button>
+              </form>
             )}
           </Card>
           {p.stocks.length > 1 && (

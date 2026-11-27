@@ -69,6 +69,7 @@ export async function createOrder({ db, companyId }: Tenant, input: NewOrderInpu
         number,
         clientId,
         statusId: status.id,
+        statusAt: new Date(),
         masterId: input.masterId || null,
         managerId: input.managerId || input.authorId,
         authorId: input.authorId,
@@ -124,19 +125,36 @@ export function normalizePhone(p: string) {
   return "+" + digits;
 }
 
-export async function changeStatus({ db, companyId }: Tenant, orderId: string, statusId: string, userId: string) {
+/** Кто меняет статус: должность (для прав по статусам) и включены ли цепочки. */
+export type StatusActor = { positionId?: string | null; owner?: boolean; chains?: boolean };
+
+/** Проверка правил статусов: права должности, цепочка, оплата, мастер. Возвращает текст ошибки или null. */
+export function statusRuleError(
+  from: { name: string; nextIds: string[]; denyEdit: string[] },
+  to: { id: string; name: string; denySet: string[]; requirePayment: boolean; requireMaster: boolean; kind: string },
+  ctx: { actor?: StatusActor; due: number; hasMaster: boolean },
+): string | null {
+  const pos = ctx.actor?.owner ? null : (ctx.actor?.positionId ?? null);
+  if (pos && from.denyEdit.includes(pos)) return `Вашей должности нельзя менять заказы в статусе «${from.name}»`;
+  if (pos && to.denySet.includes(pos)) return `Вашей должности нельзя ставить статус «${to.name}»`;
+  if (ctx.actor?.chains && from.nextIds.length && !from.nextIds.includes(to.id)) return `Из статуса «${from.name}» нельзя перевести в «${to.name}» — так настроена цепочка статусов`;
+  if ((to.requirePayment || to.kind === "CLOSED") && ctx.due > 0) return `Нельзя перевести в «${to.name}»: клиент должен ещё ${(ctx.due / 100).toLocaleString("ru-RU")} ₽`;
+  if (to.requireMaster && !ctx.hasMaster) return `Чтобы перевести в «${to.name}», назначьте мастера`;
+  return null;
+}
+
+export async function changeStatus({ db, companyId }: Tenant, orderId: string, statusId: string, userId: string, actor?: StatusActor) {
   return db.$transaction(async (tx) => {
     const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, include: { status: true } });
     const status = await tx.orderStatus.findUniqueOrThrow({ where: { id: statusId } });
     if (order.statusId === statusId) return order;
     const closing = status.kind === "CLOSED" || status.kind === "CANCELED";
-    if (status.kind === "CLOSED") {
-      const t = await orderTotalsTx(tx, orderId);
-      if (t.due > 0) throw new Error(`Нельзя выдать заказ: клиент должен ещё ${(t.due / 100).toLocaleString("ru-RU")} ₽`);
-    }
+    const t = await orderTotalsTx(tx, orderId);
+    const err = statusRuleError(order.status, status, { actor, due: t.due, hasMaster: !!order.masterId });
+    if (err) throw new Error(err);
     const updated = await tx.order.update({
       where: { id: orderId },
-      data: { statusId, closedAt: closing ? new Date() : null },
+      data: { statusId, statusAt: new Date(), closedAt: closing ? new Date() : null },
     });
     await tx.orderEvent.create({
       data: { companyId, orderId, userId, text: `Статус: «${order.status.name}» → «${status.name}»` },
@@ -193,7 +211,8 @@ export async function addPart(
   if (item.qty <= 0) throw new Error("Количество должно быть больше нуля");
   return db.$transaction(async (tx) => {
     const order = await assertOpen(tx, orderId);
-    const product = await tx.product.findUniqueOrThrow({ where: { id: item.productId } });
+    const product = await tx.product.findUniqueOrThrow({ where: { id: item.productId }, include: { prices: true } });
+    const company = await tx.company.findUniqueOrThrow({ where: { id: companyId }, select: { orderPriceKey: true } });
     const warehouseId = await resolveWarehouse(tx, order.locationId, item.warehouseId);
     await moveStockTx(tx, {
       productId: product.id,
@@ -210,7 +229,7 @@ export async function addPart(
         productId: product.id,
         name: product.name,
         qty: item.qty,
-        price: item.price ?? product.repairPrice ?? product.price,
+        price: item.price ?? priceOf(product, company.orderPriceKey),
         cost: product.cost,
         warrantyDays: item.warrantyDays ?? null,
         warehouseId,
@@ -330,7 +349,7 @@ export async function issueOrder(
       if (!input.takePayment) throw new Error(`Клиент должен ещё ${(t.due / 100).toLocaleString("ru-RU")} ₽`);
       await addPaymentTx(tx, { orderId: order.id, locationId: order.locationId, userId: input.userId, amount: t.due, method: input.method, cashboxId: input.cashboxId });
     }
-    await tx.order.update({ where: { id: order.id }, data: { statusId: closed.id, closedAt: new Date() } });
+    await tx.order.update({ where: { id: order.id }, data: { statusId: closed.id, statusAt: new Date(), closedAt: new Date() } });
     await logAction(tx, { companyId, userId: input.userId, locationId: order.locationId, kind: "order", text: `Заказ №${order.number} выдан клиенту`, link: `/orders/${order.id}` });
     await tx.orderEvent.create({
       data: { companyId, orderId: order.id, userId: input.userId, text: `Статус: «${order.status.name}» → «${closed.name}»` },
@@ -454,3 +473,4 @@ import { moveStockTx } from "./stock";
 import { resolveCashbox, resolveWarehouse } from "./places";
 import { logAction } from "./log";
 import { learnTx } from "./dict";
+import { priceOf } from "./prices";

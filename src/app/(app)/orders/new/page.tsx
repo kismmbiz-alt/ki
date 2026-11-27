@@ -16,7 +16,7 @@ export default async function NewOrderPage({ searchParams }: { searchParams: Pro
     db.adSource.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     loadDictionaries({ db, companyId: company.id }),
   ]);
-  const { cashboxes } = await placesFor({ db, companyId: company.id }, location?.id);
+  const { cashboxes } = await placesFor({ db, companyId: company.id }, location?.id, user);
   const masters = staff.filter((u) => u.role !== "MANAGER");
 
   return (

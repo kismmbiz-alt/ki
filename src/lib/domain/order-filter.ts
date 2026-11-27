@@ -26,11 +26,12 @@ export type OrderFilter = {
 };
 
 /** Условия поиска заказов из параметров адресной строки (список и выгрузка в Excel). */
-export function orderWhere(f: OrderFilter, scope: { locationId?: string; onlyMasterId?: string }, opts: { ignoreTab?: boolean } = {}) {
+export function orderWhere(f: OrderFilter, scope: { locationId?: string; onlyMasterId?: string; hideStatusIds?: string[] }, opts: { ignoreTab?: boolean } = {}) {
   const where: Prisma.OrderWhereInput = {};
   const and: Prisma.OrderWhereInput[] = [];
   if (scope.locationId) where.locationId = scope.locationId;
   if (scope.onlyMasterId) where.masterId = scope.onlyMasterId;
+  if (scope.hideStatusIds?.length) and.push({ statusId: { notIn: scope.hideStatusIds } });
   if (f.status) where.statusId = f.status;
   else if (!opts.ignoreTab) {
     const tab = ORDER_TABS.find((t) => t.key === (f.tab ?? "open"));
@@ -64,3 +65,13 @@ export function orderWhere(f: OrderFilter, scope: { locationId?: string; onlyMas
   if (and.length) where.AND = and;
   return where;
 }
+
+/** Статусы, заказы в которых должность не видит (настройка «Не видит заказы в статусе»). */
+export async function hiddenStatusIds(db: { orderStatus: { findMany: (a: { where: { denySee: { has: string } }; select: { id: true } }) => Promise<{ id: string }[]> } }, user: { role: string; positionId: string | null }) {
+  if (user.role === "OWNER" || !user.positionId) return [];
+  return (await db.orderStatus.findMany({ where: { denySee: { has: user.positionId } }, select: { id: true } })).map((s) => s.id);
+}
+
+/** Заказ пробыл в статусе дольше дедлайна. */
+export const pastDeadline = (o: { statusAt: Date | null; createdAt: Date; status: { deadlineHours: number | null } }) =>
+  !!o.status.deadlineHours && Date.now() - (o.statusAt ?? o.createdAt).getTime() > o.status.deadlineHours * 3600_000;

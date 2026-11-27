@@ -13,7 +13,7 @@ export default async function ShiftPage({ searchParams }: { searchParams: Promis
   const ctx = await requirePermission("sales");
   const loc = requireLocation(ctx);
   const t = { db: ctx.db, companyId: ctx.company.id };
-  const { cashboxes } = await placesFor(t, loc.id);
+  const { cashboxes } = await placesFor(t, loc.id, ctx.user);
   const defId = await defaultCashboxId(ctx.db, loc.id);
   const box = cashboxes.find((c) => c.id === sp.c) ?? cashboxes.find((c) => c.id === defId) ?? cashboxes[0];
   const place = { locationId: loc.id, cashboxId: box?.id };

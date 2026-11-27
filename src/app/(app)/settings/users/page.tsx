@@ -37,7 +37,15 @@ export default async function UsersPage() {
       <SettingsTabs admin />
       <div className="grid gap-4 lg:grid-cols-2">
         {users.map((u) => (
-          <Card key={u.id} title={`${u.name} · ${u.role === "OWNER" ? "Владелец" : (posName.get(posOf(u)) ?? "")}${u.isActive ? "" : " (отключён)"}`}>
+          <Card
+            key={u.id}
+            title={`${u.name} · ${u.role === "OWNER" ? "Владелец" : (posName.get(posOf(u)) ?? "")}${u.isActive ? "" : " (отключён)"}`}
+            actions={
+              <a href={`/settings/users/${u.id}`} className="text-sm text-blue-600 hover:underline">
+                Полная карточка и зарплата →
+              </a>
+            }
+          >
             <Form action={updateUserAction} className="grid grid-cols-2 gap-2" resetOnOk={false}>
               <input type="hidden" name="id" value={u.id} />
               <Field label="Имя">

@@ -27,6 +27,9 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
   return (
     <>
       <PageHeader title={c.name} back="/clients">
+        <a href={`/print/t?client=${c.id}`} target="_blank" className={btn("secondary")}>
+          Акт сверки
+        </a>
         <Link href={`/orders/new?clientId=${c.id}`} className={btn()}>
           + Заказ для клиента
         </Link>
@@ -77,6 +80,32 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
             <Field label="Заметки">
               <Textarea name="notes" defaultValue={c.notes ?? ""} />
             </Field>
+            <details className="rounded-lg bg-slate-50 p-2" open={!!c.passport}>
+              <summary className="cursor-pointer text-sm font-medium text-slate-700">Паспорт и реквизиты (для договора скупки)</summary>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <Field label="Серия и номер" className="col-span-2">
+                  <Input name="passport" defaultValue={c.passport ?? ""} />
+                </Field>
+                <Field label="Кем выдан" className="col-span-2">
+                  <Input name="passportIssuedBy" defaultValue={c.passportIssuedBy ?? ""} />
+                </Field>
+                <Field label="Дата выдачи">
+                  <Input name="passportDate" type="date" defaultValue={c.passportDate ? c.passportDate.toISOString().slice(0, 10) : ""} />
+                </Field>
+                <Field label="Код подразделения">
+                  <Input name="passportCode" defaultValue={c.passportCode ?? ""} />
+                </Field>
+                <Field label="Дата рождения">
+                  <Input name="birthDate" type="date" defaultValue={c.birthDate ? c.birthDate.toISOString().slice(0, 10) : ""} />
+                </Field>
+                <Field label="ИНН">
+                  <Input name="inn" defaultValue={c.inn ?? ""} />
+                </Field>
+                <Field label="Адрес" className="col-span-2">
+                  <Input name="address" defaultValue={c.address ?? ""} />
+                </Field>
+              </div>
+            </details>
             <Submit variant="secondary">Сохранить</Submit>
           </Form>
         </Card>

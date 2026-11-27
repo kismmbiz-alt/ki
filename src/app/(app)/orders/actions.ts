@@ -60,7 +60,7 @@ export const createOrderAction = safe(async (fd) => {
 
 export const changeStatusAction = safe(async (fd) => {
   const { ctx, t, order } = await assertOrderAccess(str(fd, "orderId"));
-  await orders.changeStatus(t, order.id, str(fd, "statusId"), ctx.user.id);
+  await orders.changeStatus(t, order.id, str(fd, "statusId"), ctx.user.id, { positionId: ctx.user.positionId, owner: ctx.user.role === "OWNER", chains: ctx.company.statusChains });
   revalidatePath(`/orders/${order.id}`);
 });
 

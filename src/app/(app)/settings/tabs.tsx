@@ -14,6 +14,8 @@ export async function SettingsTabs(_props: { admin?: boolean } = {}) {
     ...(settings
       ? [
           { href: "/settings/statuses", label: "Статусы" },
+          { href: "/settings/prices", label: "Цены" },
+          { href: "/settings/prints", label: "Печатные формы" },
           { href: "/settings/catalog", label: "Прайс и источники" },
           { href: "/settings/dicts", label: "Справочники" },
         ]

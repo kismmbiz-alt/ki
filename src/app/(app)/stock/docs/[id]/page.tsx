@@ -3,16 +3,26 @@ import { requirePermission } from "@/lib/auth";
 import { Card, dt, PageHeader, Table } from "@/components/ui";
 import { rub } from "@/lib/money";
 import { DOC_LABEL } from "@/lib/domain/stock";
+import { PrintMenu } from "@/components/order-widgets";
+import { printMenu } from "@/lib/print/templates";
 
 export default async function DocPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { db } = await requirePermission("stock");
+  const { db, company } = await requirePermission("stock");
   const d = await db.stockDoc.findUnique({ where: { id }, include: { items: true, location: true, toLocation: true, warehouse: true, toWarehouse: true, supplier: true } });
   if (!d) notFound();
   const user = d.userId ? await db.user.findUnique({ where: { id: d.userId } }) : null;
+  const print = await printMenu(db, company.id, "stock", d.type);
   return (
     <>
-      <PageHeader title={`${DOC_LABEL[d.type]} №${d.number}`} back={`/stock/${({ RECEIPT: "receipts", TRANSFER: "transfers", WRITEOFF: "writeoffs", INVENTORY: "inventory", SUPPLIER_RETURN: "returns" } as const)[d.type]}`} />
+      <PageHeader title={`${DOC_LABEL[d.type]} №${d.number}`} back={`/stock/${({ RECEIPT: "receipts", TRANSFER: "transfers", WRITEOFF: "writeoffs", INVENTORY: "inventory", SUPPLIER_RETURN: "returns" } as const)[d.type]}`}>
+        <PrintMenu templates={print.templates} defaults={print.defaults} query={`doc=${d.id}`} />
+        {d.items.length > 0 && (
+          <a href={`/print/t?products=${d.items.map((i) => i.productId).join(",")}&qty=${d.items.map((i) => Math.max(1, Math.abs(i.qty))).join(",")}`} target="_blank" className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
+            Ценники на товары
+          </a>
+        )}
+      </PageHeader>
       <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
         <Table head={["Товар", d.type === "INVENTORY" ? "Разница" : "Кол-во", "Закупка за шт", "Сумма"]} empty="Нет строк">
           {d.items.map((i) => (

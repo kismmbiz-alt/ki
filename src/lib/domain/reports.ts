@@ -1,5 +1,6 @@
 import type { Tenant } from "../db";
 import { totals } from "./orders";
+import { salarySheet } from "./salary";
 
 /** Сводка за период: выручка, прибыль, заказы и зарплата мастеров. */
 export async function periodReport({ db }: Tenant, from: Date, to: Date, locationId?: string) {
@@ -26,6 +27,11 @@ export async function periodReport({ db }: Tenant, from: Date, to: Date, locatio
       m.salary = Math.round((m.services * m.percent) / 100);
       masters.set(o.master.id, m);
     }
+  }
+  // зарплата по правилам из карточки сотрудника (если правил нет — % от работ)
+  for (const [id, m] of masters) {
+    const sheet = await salarySheet(db, { id: "" }, id, from, to);
+    if (sheet) m.salary = sheet.accrued;
   }
   const salesRevenue = sales.reduce((s, x) => s + x.total, 0);
   const salesProfit = sales.reduce((s, x) => s + x.items.reduce((a, i) => a + i.qty * (i.price - i.cost), 0), 0);

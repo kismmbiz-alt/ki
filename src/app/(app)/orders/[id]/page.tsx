@@ -8,6 +8,7 @@ import { Form, Submit } from "@/components/form";
 import { Badge, Card, dt, Field, Input, PhoneLinks, Section, Select, Textarea, toLocalInput } from "@/components/ui";
 import { ComboInput, TagInput } from "@/components/tag-input";
 import { AutoSubmitSelect, PrintMenu } from "@/components/order-widgets";
+import { printMenu } from "@/lib/print/templates";
 import { kopToInput, rub } from "@/lib/money";
 import { totals } from "@/lib/domain/orders";
 import { PAY_LABEL } from "@/lib/domain/cash";
@@ -48,6 +49,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
   });
   if (!order) notFound();
   if (!can(user, "allOrders") && order.masterId !== user.id) notFound();
+  if (user.role !== "OWNER" && user.positionId && order.status.denySee.includes(user.positionId)) notFound();
 
   const [statuses, staff, services, products, sources, dicts] = await Promise.all([
     db.orderStatus.findMany({ orderBy: { sort: "asc" } }),
@@ -61,7 +63,12 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
     db.adSource.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     loadDictionaries({ db, companyId: company.id }),
   ]);
-  const { cashboxes } = await placesFor({ db, companyId: company.id }, order.locationId);
+  const { cashboxes } = await placesFor({ db, companyId: company.id }, order.locationId, user);
+  const myPos = user.role === "OWNER" ? null : user.positionId;
+  const allowedStatus = (s: (typeof statuses)[number]) =>
+    !(myPos && (s.denySet.includes(myPos) || order.status.denyEdit.includes(myPos))) && !(company.statusChains && order.status.nextIds.length && !order.status.nextIds.includes(s.id));
+  const isDone = order.status.kind === "CLOSED" || order.status.kind === "CANCELED";
+  const print = await printMenu(db, company.id, "order", undefined, isDone ? ["Акт выполненных работ", "Гарантийный талон"] : []);
   const partOptions = products.flatMap((p) => p.stocks.filter((s) => s.warehouse.isActive).map((s) => ({ p, s })));
   const manyWh = new Set(partOptions.map((x) => x.s.warehouseId)).size > 1;
   const t = totals(order.items, order.payments.reduce((s, p) => s + p.amount, 0), order);
@@ -98,7 +105,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
                 style={{ color: order.status.color, borderColor: order.status.color + "88", backgroundColor: order.status.color + "1a" }}
               >
                 {statuses.map((s) => (
-                  <option key={s.id} value={s.id} disabled={s.kind === "CLOSED"}>
+                  <option key={s.id} value={s.id} disabled={s.kind === "CLOSED" || (s.id !== order.statusId && !allowedStatus(s))}>
                     {s.name}
                     {s.kind === "CLOSED" ? " (кнопка «Выдать»)" : ""}
                   </option>
@@ -109,7 +116,7 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
           <span className="text-sm text-slate-500">{order.orderType}</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <PrintMenu orderId={order.id} defaults={closed ? ["act", "warranty"] : ["receipt"]} />
+          <PrintMenu templates={print.templates} defaults={print.defaults} query={`order=${order.id}`} />
           {!closed && canCash && (
             <a href="#issue" className="inline-flex items-center gap-1.5 rounded-lg bg-[#16a34a] px-4 py-2 text-sm font-medium on-accent hover:bg-[#15803d]">
               <CheckCircle2 size={16} /> Выдать

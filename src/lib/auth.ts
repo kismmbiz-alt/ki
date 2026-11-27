@@ -22,7 +22,9 @@ export async function verifyPassword(p: string, hash: string) {
 
 export async function createSession(userId: string, twoFactorOk: boolean) {
   const token = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + SESSION_DAYS * 864e5);
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { autoLogoutDays: true } });
+  const days = u?.autoLogoutDays && u.autoLogoutDays > 0 ? Math.min(u.autoLogoutDays, SESSION_DAYS) : SESSION_DAYS;
+  const expiresAt = new Date(Date.now() + days * 864e5);
   await prisma.session.create({ data: { id: hashToken(token), userId, twoFactorOk, expiresAt } });
   (await cookies()).set(COOKIE, token, {
     httpOnly: true,

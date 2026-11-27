@@ -1,6 +1,7 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
-import { Download, FolderPlus, Plus, Search } from "lucide-react";
+import { Download, FolderPlus, Plus, Search, Printer } from "lucide-react";
 import { can, requirePermission } from "@/lib/auth";
 import { btn, Card, Input, PageHeader, Select } from "@/components/ui";
 import { Form, Submit } from "@/components/form";
@@ -19,6 +20,11 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
   const filter = sp.f ?? "pos";
   const where: Prisma.ProductWhereInput = { isActive: filter !== "archive" };
   const q = sp.q?.trim();
+  // сканер: точное совпадение штрихкода — сразу в карточку товара
+  if (q && /^\S{4,}$/.test(q)) {
+    const hit = await db.product.findMany({ where: { barcode: q }, select: { id: true }, take: 2 });
+    if (hit.length === 1) redirect(`/stock/${hit[0].id}`);
+  }
   if (q) where.OR = [{ name: { contains: q, mode: "insensitive" } }, { sku: { contains: q, mode: "insensitive" } }, { barcode: q }];
   if (sp.g === "none") where.groupId = null;
   else if (sp.g) where.groupId = sp.g;
@@ -43,6 +49,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
     .filter((r) => (filter === "pos" ? r.here > 0 : filter === "low" ? r.low : filter === "zero" ? r.here <= 0 : true))
     .sort((a, b) => b.here - a.here || a.p.name.localeCompare(b.p.name));
   const showCost = can(user, "cost");
+  const tagRows = rows.filter((r) => r.here > 0).slice(0, 150);
   const value = rows.reduce((s, r) => s + Math.max(r.here, 0) * r.p.cost, 0);
   const qs = (o: Partial<SP>) => {
     const u = new URLSearchParams();
@@ -57,6 +64,11 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
         <a href={`/stock/export?${new URLSearchParams(Object.entries(sp).filter(([, v]) => v) as [string, string][])}`} className={btn("secondary")}>
           <Download size={16} /> Экспорт
         </a>
+        {tagRows.length > 0 && (
+          <a href={`/print/t?products=${tagRows.map((r) => r.p.id).join(",")}&qty=${tagRows.map((r) => r.here).join(",")}`} target="_blank" className={btn("secondary")} title="Ценники на товары из списка — по количеству в наличии (до 150 позиций)">
+            <Printer size={16} /> Ценники
+          </a>
+        )}
         <Link href={qs({ new: "1" })} className={btn()}>
           <Plus size={16} /> Товар
         </Link>

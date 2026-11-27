@@ -5,7 +5,7 @@ import { btn, Badge, dt, Input, Select } from "@/components/ui";
 import { RowLink } from "@/components/row-link";
 import { rub } from "@/lib/money";
 import { totals } from "@/lib/domain/orders";
-import { ORDER_TABS, orderWhere, type OrderFilter } from "@/lib/domain/order-filter";
+import { hiddenStatusIds, ORDER_TABS, orderWhere, pastDeadline, type OrderFilter } from "@/lib/domain/order-filter";
 import { FUNNEL } from "@/lib/domain/dashboard";
 import { loadDictionaries } from "@/lib/domain/dict";
 
@@ -13,7 +13,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   const sp = await searchParams;
   const { db, user, location, company } = await requireUser();
   const tab = ORDER_TABS.some((t) => t.key === sp.tab) ? sp.tab! : "open";
-  const scope = { locationId: location?.id, onlyMasterId: can(user, "allOrders") ? undefined : user.id };
+  const scope = { locationId: location?.id, onlyMasterId: can(user, "allOrders") ? undefined : user.id, hideStatusIds: await hiddenStatusIds(db, user) };
   const where = orderWhere({ ...sp, tab }, scope);
   const baseWhere = orderWhere({ ...sp, tab, status: undefined }, scope, { ignoreTab: true });
 
@@ -159,6 +159,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                   </td>
                   <td className="px-3 py-2.5">
                     <Badge color={o.status.color}>{o.status.name}</Badge>
+                    {pastDeadline(o) && <span className="ml-1 text-xs font-medium text-red-600" title="Заказ дольше дедлайна в этом статусе">просрочен</span>}
                   </td>
                   <td className={`whitespace-nowrap px-3 py-2.5 ${overdue ? "font-medium text-red-600" : "text-slate-500"}`}>{dt(o.dueDate)}</td>
                   <td className="whitespace-nowrap px-3 py-2.5">

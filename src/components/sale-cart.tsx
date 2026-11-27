@@ -4,14 +4,28 @@ import { useMemo, useState } from "react";
 import { Minus, Plus, Search, Trash2 } from "lucide-react";
 import { inputCls } from "./ui";
 
-type P = { id: string; name: string; sku: string | null; price: number; minPrice: number | null; qty: number; other: number; barcode: string | null; groupId: string | null };
+type P = { id: string; name: string; sku: string | null; price: number; minPrice: number | null; qty: number; other: number; barcode: string | null; groupId: string | null; prices?: Record<string, number> };
 type G = { id: string; label: string };
 
 const fmt = (rub: number) => rub.toLocaleString("ru-RU", { maximumFractionDigits: 2 }) + " ₽";
 
 /** Экран продажи: список товаров слева, чек справа. Отправляет items, discount, клиент. */
-export function SaleCart({ products, groups, children }: { products: P[]; groups: G[]; children?: React.ReactNode }) {
+export function SaleCart({
+  products,
+  groups,
+  children,
+  priceOptions = [],
+  defaultPriceKey = "retail",
+}: {
+  products: P[];
+  groups: G[];
+  children?: React.ReactNode;
+  priceOptions?: { key: string; name: string }[];
+  defaultPriceKey?: string;
+}) {
   const [rows, setRows] = useState<{ productId: string; qty: number; price: string }[]>([]);
+  const [pk, setPk] = useState(defaultPriceKey);
+  const priceFor = (p: P, key = pk) => p.prices?.[key] ?? p.price;
   const [q, setQ] = useState("");
   const [g, setG] = useState("");
   const [discount, setDiscount] = useState("");
@@ -25,7 +39,7 @@ export function SaleCart({ products, groups, children }: { products: P[]; groups
     setRows((r) => {
       const ex = r.find((x) => x.productId === p.id);
       if (ex) return r.map((x) => (x.productId === p.id ? { ...x, qty: Math.min(x.qty + 1, p.qty) } : x));
-      return [...r, { productId: p.id, qty: 1, price: String(p.price / 100) }];
+      return [...r, { productId: p.id, qty: 1, price: String(priceFor(p) / 100) }];
     });
     setQ("");
   };
@@ -54,6 +68,27 @@ export function SaleCart({ products, groups, children }: { products: P[]; groups
               autoFocus
             />
           </div>
+          {priceOptions.length > 1 && (
+            <select
+              className={`${inputCls} sm:w-48`}
+              value={pk}
+              title="Какую цену ставить"
+              onChange={(e) => {
+                const key = e.target.value;
+                setPk(key);
+                setRows((rs) => rs.map((r) => {
+                  const p = byId.get(r.productId);
+                  return p ? { ...r, price: String(priceFor(p, key) / 100) } : r;
+                }));
+              }}
+            >
+              {priceOptions.map((o) => (
+                <option key={o.key} value={o.key}>
+                  Цена: {o.name}
+                </option>
+              ))}
+            </select>
+          )}
           {groups.length > 0 && (
             <select className={`${inputCls} sm:w-56`} value={g} onChange={(e) => setG(e.target.value)}>
               <option value="">Все группы</option>
@@ -84,7 +119,7 @@ export function SaleCart({ products, groups, children }: { products: P[]; groups
                   </td>
                   <td className="px-3 py-2 text-right font-medium text-slate-800">{p.qty}</td>
                   <td className="px-3 py-2 text-right text-slate-500">{p.other || ""}</td>
-                  <td className="px-3 py-2 text-right text-blue-600">{fmt(p.price / 100)}</td>
+                  <td className="px-3 py-2 text-right text-blue-600">{fmt(priceFor(p) / 100)}</td>
                 </tr>
               ))}
               {!list.length && (

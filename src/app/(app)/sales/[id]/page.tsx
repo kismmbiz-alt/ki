@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Printer } from "lucide-react";
 import { can, requirePermission } from "@/lib/auth";
 import { placesFor } from "@/lib/domain/places";
 import { CashboxField } from "@/components/place-fields";
@@ -9,6 +8,8 @@ import { Form, Submit } from "@/components/form";
 import { rub } from "@/lib/money";
 import { PAY_LABEL } from "@/lib/domain/cash";
 import { returnSaleAction } from "../actions";
+import { PrintMenu } from "@/components/order-widgets";
+import { printMenu } from "@/lib/print/templates";
 
 export default async function SalePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ done?: string }> }) {
   const { id } = await params;
@@ -17,21 +18,20 @@ export default async function SalePage({ params, searchParams }: { params: Promi
   const s = await db.sale.findUnique({ where: { id }, include: { items: true, user: true, client: true, transactions: { include: { cashbox: true } }, location: true, warehouse: true } });
   if (!s) notFound();
   const canReturn = can(user, "salesReturn");
-  const { cashboxes } = await placesFor({ db, companyId: company.id }, s.locationId);
+  const { cashboxes } = await placesFor({ db, companyId: company.id }, s.locationId, user);
   const [returns, original] = await Promise.all([
     db.sale.findMany({ where: { returnOfId: s.id }, include: { items: true }, orderBy: { createdAt: "asc" } }),
     s.returnOfId ? db.sale.findUnique({ where: { id: s.returnOfId } }) : null,
   ]);
   const returned = new Map<string, number>();
   for (const r of returns) for (const i of r.items) returned.set(i.productId, (returned.get(i.productId) ?? 0) + i.qty);
+  const print = await printMenu(db, company.id, "sale", undefined, s.isReturn ? ["Возврат от покупателя"] : []);
   const sum = s.items.reduce((a, i) => a + i.qty * i.price, 0);
 
   return (
     <>
       <PageHeader title={`${s.isReturn ? "Возврат" : "Продажа"} №${s.number}`} back="/sales/history">
-        <a href={`/print/sale/${s.id}`} target="_blank" className={btn("secondary")}>
-          <Printer size={16} /> Товарный чек
-        </a>
+        <PrintMenu templates={print.templates} defaults={print.defaults} query={`sale=${s.id}`} />
         <Link href="/sales" className={btn()}>
           Новая продажа
         </Link>

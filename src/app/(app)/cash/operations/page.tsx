@@ -15,7 +15,7 @@ export default async function OperationsPage({ searchParams }: { searchParams: P
   const ctx = await requirePermission("cash");
   const { db, user, location } = ctx;
   const { fromS, toS, from, to } = parseRange(sp);
-  const { cashboxes } = await placesFor({ db, companyId: ctx.company.id }, user.locationId ? location?.id : null);
+  const { cashboxes } = await placesFor({ db, companyId: ctx.company.id }, user.locationId ? location?.id : null, user);
   const ids = cashboxes.map((c) => c.id);
   const where: Prisma.CashTransactionWhereInput = { createdAt: { gte: from, lt: to }, cashboxId: sp.c && ids.includes(sp.c) ? sp.c : { in: ids } };
   if (sp.u) where.userId = sp.u;

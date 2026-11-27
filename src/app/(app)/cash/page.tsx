@@ -15,7 +15,7 @@ export default async function CashPage() {
   const ctx = await requirePermission("cash");
   const { db, location, user } = ctx;
   const t = { db, companyId: ctx.company.id };
-  const { cashboxes } = await placesFor(t, user.locationId ? location?.id : null);
+  const { cashboxes } = await placesFor(t, user.locationId ? location?.id : null, user);
   const here = location ? cashboxes.filter((c) => !c.locationId || c.locationId === location.id) : cashboxes;
   const balances = await cashboxBalances(t, cashboxes.map((c) => c.id));
   const today = new Date(new Date().toDateString());

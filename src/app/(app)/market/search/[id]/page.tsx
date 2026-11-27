@@ -28,7 +28,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
   const market = est?.picked.stats ?? null;
   const offer = market ? suggestedBuyPrice(market.median, company.marketMargin) : null;
   const hasIssues = l.defects.length + l.replacements.length > 0;
-  const { warehouses, cashboxes } = await placesFor({ db: ctx.db, companyId: ctx.company.id }, ctx.location?.id);
+  const { warehouses, cashboxes } = await placesFor({ db: ctx.db, companyId: ctx.company.id }, ctx.location?.id, ctx.user);
 
   return (
     <>

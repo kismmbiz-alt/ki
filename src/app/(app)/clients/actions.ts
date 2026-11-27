@@ -11,7 +11,29 @@ export const saveClientAction = safe(async (fd) => {
   const id = opt(fd, "id");
   const phone = normalizePhone(str(fd, "phone"));
   if (!phone) throw new Error("Укажите телефон");
-  const data = { name: str(fd, "name") || "Без имени", phone, email: opt(fd, "email"), notes: opt(fd, "notes"), adSourceId: opt(fd, "adSourceId") };
+  const date = (k: string) => {
+    const v = str(fd, k);
+    const d = v ? new Date(`${v}T12:00:00`) : null;
+    return d && !Number.isNaN(d.getTime()) ? d : null;
+  };
+  const data = {
+    name: str(fd, "name") || "Без имени",
+    phone,
+    email: opt(fd, "email"),
+    notes: opt(fd, "notes"),
+    adSourceId: opt(fd, "adSourceId"),
+    ...(fd.has("passport")
+      ? {
+          address: opt(fd, "address"),
+          inn: opt(fd, "inn"),
+          birthDate: date("birthDate"),
+          passport: opt(fd, "passport"),
+          passportIssuedBy: opt(fd, "passportIssuedBy"),
+          passportDate: date("passportDate"),
+          passportCode: opt(fd, "passportCode"),
+        }
+      : {}),
+  };
   if (id) {
     await db.client.update({ where: { id }, data });
     revalidatePath(`/clients/${id}`);
