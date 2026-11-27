@@ -221,6 +221,7 @@ export async function addPart(
       type: "ORDER",
       userId,
       comment: `Заказ №${order.number}`,
+      link: `/orders/${order.id}`,
     });
     await tx.orderItem.create({
       data: { companyId,
@@ -252,6 +253,7 @@ export async function removeItem({ db, companyId }: Tenant, itemId: string, user
         type: "RETURN",
         userId,
         comment: `Возврат из заказа №${order.number}`,
+        link: `/orders/${order.id}`,
       });
     }
     await tx.orderItem.delete({ where: { id: itemId } });

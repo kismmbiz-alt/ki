@@ -75,7 +75,7 @@ export async function createSale(
     });
     for (const r of rows) {
       await tx.saleItem.create({ data: { companyId, saleId: sale.id, ...r } });
-      await moveStockTx(tx, { productId: r.productId, warehouseId, qty: -r.qty, type: "SALE", userId: s.userId, comment: `Продажа №${number}` });
+      await moveStockTx(tx, { productId: r.productId, warehouseId, qty: -r.qty, type: "SALE", userId: s.userId, comment: `Продажа №${number}`, link: `/sales/${sale.id}` });
     }
     if (total - bonusPay > 0)
       await tx.cashTransaction.create({
@@ -140,7 +140,7 @@ export async function returnSale(
     }
     for (const x of rows) {
       await tx.saleItem.create({ data: { companyId, saleId: ret.id, ...x } });
-      await moveStockTx(tx, { productId: x.productId, warehouseId, qty: x.qty, type: "RETURN", userId: r.userId, comment: `Возврат по продаже №${sale.number}` });
+      await moveStockTx(tx, { productId: x.productId, warehouseId, qty: x.qty, type: "RETURN", userId: r.userId, comment: `Возврат по продаже №${sale.number}`, link: `/sales/${ret.id}` });
     }
     if (total - bonusBack > 0)
       await tx.cashTransaction.create({

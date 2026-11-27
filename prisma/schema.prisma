@@ -486,6 +486,7 @@ model StockMove {
   qty         Int // + приход, - расход
   cost        Int           @default(0) // закупочная цена единицы при приходе
   comment     String?
+  link        String? // документ, по которому было движение: /stock/docs/…, /sales/…, /orders/…
   createdAt   DateTime      @default(now())
 
   company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -768,7 +769,9 @@ model StockDoc {
 }
 
 model StockDocItem {
-  id        String @id @default(cuid())
+  id      String  @id @default(cuid())
+  serials String? // серийные номера (IMEI / S/N) через запятую
+
   companyId String
   docId     String
   productId String

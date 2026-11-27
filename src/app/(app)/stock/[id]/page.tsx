@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { can, requirePermission } from "@/lib/auth";
 import { Card, dt, Field, Input, PageHeader, Select, Stat, Table } from "@/components/ui";
@@ -19,15 +20,15 @@ const MOVE_LABEL: Record<string, string> = {
   WRITEOFF: "Списание",
 };
 
-export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProductPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ from?: string; to?: string; hw?: string }> }) {
   const { id } = await params;
+  const sp = await searchParams;
   const { db, location, user, company } = await requirePermission("stock");
   const [p, groups, suppliers, priceTypes, tags] = await Promise.all([
     db.product.findUnique({
       where: { id },
       include: {
         stocks: { include: { location: true, warehouse: true }, orderBy: { warehouse: { sort: "asc" } } },
-        moves: { orderBy: { createdAt: "desc" }, take: 100, include: { location: true, warehouse: true, user: true } },
         prices: true,
       },
     }),
@@ -51,17 +52,31 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   );
   const showCost = can(user, "cost");
   // история как в LiveSklad: приход, расход и остаток после каждой операции
-  const [inSum, outSum] = await Promise.all([
-    db.stockMove.aggregate({ where: { productId: p.id, qty: { gt: 0 } }, _sum: { qty: true } }),
-    db.stockMove.aggregate({ where: { productId: p.id, qty: { lt: 0 } }, _sum: { qty: true } }),
+  // период и склад как «Показывать по» в LiveSklad
+  const hFrom = sp.from ? new Date(`${sp.from}T00:00:00`) : null;
+  const hTo = sp.to ? new Date(new Date(`${sp.to}T00:00:00`).getTime() + 864e5) : null;
+  const whf = sp.hw ? { warehouseId: sp.hw } : {};
+  const [moves, after] = await Promise.all([
+    db.stockMove.findMany({
+      where: { productId: p.id, ...whf, createdAt: { ...(hFrom ? { gte: hFrom } : {}), ...(hTo ? { lt: hTo } : {}) } },
+      include: { warehouse: true, user: true },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+    }),
+    hTo ? db.stockMove.aggregate({ where: { productId: p.id, ...whf, createdAt: { gte: hTo } }, _sum: { qty: true } }) : null,
   ]);
-  const totalNow = p.stocks.reduce((a, s) => a + s.qty, 0);
-  let bal = totalNow;
-  const history = p.moves.map((m) => {
-    const after = bal;
+  const totalNow = p.stocks.filter((x) => !sp.hw || x.warehouseId === sp.hw).reduce((a, s) => a + s.qty, 0);
+  const endBal = totalNow - (after?._sum.qty ?? 0);
+  let bal = endBal;
+  const history = moves.map((m) => {
+    const left = bal;
     bal -= m.qty;
-    return { m, after };
+    return { m, after: left };
   });
+  const startBal = bal;
+  const inQty = moves.filter((m) => m.qty > 0).reduce((a, m) => a + m.qty, 0);
+  const outQty = -moves.filter((m) => m.qty < 0).reduce((a, m) => a + m.qty, 0);
+  const allWh = [...new Map(p.stocks.map((x) => [x.warehouseId, x.warehouse])).values()];
 
   return (
     <>
@@ -125,23 +140,68 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
               </ul>
             </Card>
           )}
+          <form className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-200 bg-white p-3 text-sm">
+            <span className="pb-2 font-medium text-slate-700">История товара</span>
+            <Select name="hw" defaultValue={sp.hw ?? ""} className="w-48">
+              <option value="">Все склады</option>
+              {allWh.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </Select>
+            <Input type="date" name="from" defaultValue={sp.from} className="w-40" />
+            <Input type="date" name="to" defaultValue={sp.to} className="w-40" />
+            <button className="rounded-lg border border-slate-200 px-3 py-2 text-slate-700 hover:bg-slate-100">Обновить историю</button>
+          </form>
           <div className="grid grid-cols-3 gap-3">
-            <Stat label="Оприходовано" value={`${inSum._sum.qty ?? 0} шт`} />
-            <Stat label="Расход" value={`${-(outSum._sum.qty ?? 0)} шт`} />
-            <Stat label="Остаток" value={`${totalNow} шт`} sub={showCost ? `по закупке ${rub(totalNow * p.cost)}` : undefined} />
+            <Stat label="Оприходовано" value={`${inQty} шт`} sub={hFrom || hTo ? "за период" : "за всё время"} />
+            <Stat label="Расход (реализовано, списано)" value={`${outQty} шт`} />
+            <Stat label="Остаток" value={`${endBal} шт`} sub={showCost ? `по закупке ${rub(endBal * p.cost)}, в рознице ${rub(endBal * p.price)}` : `в рознице ${rub(endBal * p.price)}`} />
           </div>
-          <Table head={["Дата", "Операция", "Склад", "Кол-во", "Остаток", "Кто", "Комментарий"]} empty="Движений нет">
+          <Table head={["Дата", "Документ", "Склад", "Приход", "Расход", "Остаток", "Кто"]} empty="Движений нет">
+            {hFrom && (
+              <tr className="bg-slate-50 text-slate-500">
+                <td className="px-3 py-2" colSpan={5}>
+                  Остаток на {hFrom.toLocaleDateString("ru-RU")}
+                </td>
+                <td className="px-3 py-2 font-medium">{startBal}</td>
+                <td />
+              </tr>
+            )}
             {history.map(({ m, after }) => (
               <tr key={m.id}>
                 <td className="px-3 py-2 whitespace-nowrap text-slate-500">{dt(m.createdAt)}</td>
-                <td className="px-3 py-2">{MOVE_LABEL[m.type] ?? m.type}</td>
+                <td className="px-3 py-2">
+                  {m.link ? (
+                    <Link href={m.link} className="text-blue-600 hover:underline">
+                      {m.comment ?? MOVE_LABEL[m.type]}
+                    </Link>
+                  ) : (
+                    <>
+                      {MOVE_LABEL[m.type] ?? m.type}
+                      {m.comment && <span className="text-slate-500"> · {m.comment}</span>}
+                    </>
+                  )}
+                </td>
                 <td className="px-3 py-2">{m.warehouse.name}</td>
-                <td className={`px-3 py-2 font-medium ${m.qty < 0 ? "text-red-600" : "text-green-600"}`}>{m.qty > 0 ? `+${m.qty}` : m.qty}</td>
+                <td className="px-3 py-2 font-medium text-green-600">{m.qty > 0 ? m.qty : ""}</td>
+                <td className="px-3 py-2 font-medium text-red-600">{m.qty < 0 ? -m.qty : ""}</td>
                 <td className="px-3 py-2 text-slate-700">{after}</td>
                 <td className="px-3 py-2 text-slate-500">{m.user?.name}</td>
-                <td className="px-3 py-2 text-slate-500">{m.comment}</td>
               </tr>
             ))}
+            {history.length > 0 && (
+              <tr className="bg-slate-50 font-medium">
+                <td className="px-3 py-2" colSpan={3}>
+                  Обороты за период
+                </td>
+                <td className="px-3 py-2 text-green-600">{inQty}</td>
+                <td className="px-3 py-2 text-red-600">{outQty}</td>
+                <td className="px-3 py-2">{endBal}</td>
+                <td />
+              </tr>
+            )}
           </Table>
         </div>
         <div className="space-y-4">

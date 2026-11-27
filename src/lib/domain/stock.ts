@@ -22,7 +22,7 @@ async function warehouseOf(tx: Tx, p: Place) {
 /** Движение товара на складе. Не даёт уйти в минус. */
 export async function moveStockTx(
   tx: Tx,
-  m: Place & { productId: string; qty: number; type: StockMoveType; userId?: string | null; cost?: number; comment?: string },
+  m: Place & { productId: string; qty: number; type: StockMoveType; userId?: string | null; cost?: number; comment?: string; link?: string },
 ) {
   const product = await tx.product.findUniqueOrThrow({ where: { id: m.productId } });
   const companyId = product.companyId;
@@ -48,6 +48,7 @@ export async function moveStockTx(
       qty: m.qty,
       cost: m.cost ?? 0,
       comment: m.comment ?? null,
+      link: m.link ?? null,
     },
   });
   return newQty;
@@ -85,7 +86,7 @@ export async function setStock(
 }
 
 /** Приход внутри транзакции: пересчёт средней закупочной + движение. */
-async function receiveTx(tx: Tx, r: Place & { productId: string; qty: number; cost: number; userId: string; comment?: string }) {
+async function receiveTx(tx: Tx, r: Place & { productId: string; qty: number; cost: number; userId: string; comment?: string; link?: string }) {
   const product = await tx.product.findUniqueOrThrow({ where: { id: r.productId } });
   const totalAgg = await tx.stock.aggregate({ where: { productId: r.productId }, _sum: { qty: true } });
   const have = Math.max(totalAgg._sum.qty ?? 0, 0);
@@ -191,6 +192,7 @@ export async function createStockDoc({ db, companyId }: Tenant, d: DocInput) {
       },
     });
     const label = `${DOC_LABEL[d.type]} №${number}`;
+    const link = `/stock/docs/${doc.id}`;
     let total = 0;
     for (const i of items) {
       let productId = i.productId;
@@ -225,7 +227,7 @@ export async function createStockDoc({ db, companyId }: Tenant, d: DocInput) {
       let cost = p.cost;
       if (d.type === "RECEIPT") {
         cost = i.cost ?? p.cost;
-        await receiveTx(tx, { productId: p.id, warehouseId: wh.id, qty, cost, userId: d.userId, comment: label });
+        await receiveTx(tx, { productId: p.id, warehouseId: wh.id, qty, cost, userId: d.userId, comment: label, link });
         const prices: { price?: number; repairPrice?: number; minPrice?: number; supplierId?: string } = {};
         if (i.price != null) prices.price = i.price;
         if (i.repairPrice != null) prices.repairPrice = i.repairPrice;
@@ -234,15 +236,15 @@ export async function createStockDoc({ db, companyId }: Tenant, d: DocInput) {
         if (Object.keys(prices).length) await tx.product.update({ where: { id: p.id }, data: prices });
       } else if (d.type === "WRITEOFF" || d.type === "SUPPLIER_RETURN") {
         if (d.type === "SUPPLIER_RETURN") cost = i.cost ?? p.cost;
-        await moveStockTx(tx, { productId: p.id, warehouseId: wh.id, qty: -qty, type: "WRITEOFF", userId: d.userId, comment: d.comment ? `${label}: ${d.comment}` : label });
+        await moveStockTx(tx, { productId: p.id, warehouseId: wh.id, qty: -qty, type: "WRITEOFF", userId: d.userId, comment: d.comment ? `${label}: ${d.comment}` : label, link });
       } else if (d.type === "TRANSFER") {
-        await moveStockTx(tx, { productId: p.id, warehouseId: wh.id, qty: -qty, type: "TRANSFER", userId: d.userId, comment: label });
-        await moveStockTx(tx, { productId: p.id, warehouseId: to!.id, qty, type: "TRANSFER", userId: d.userId, comment: label });
+        await moveStockTx(tx, { productId: p.id, warehouseId: wh.id, qty: -qty, type: "TRANSFER", userId: d.userId, comment: label, link });
+        await moveStockTx(tx, { productId: p.id, warehouseId: to!.id, qty, type: "TRANSFER", userId: d.userId, comment: label, link });
       } else {
         const cur = await tx.stock.findFirst({ where: { productId: p.id, warehouseId: wh.id } });
         qty = i.qty - (cur?.qty ?? 0);
         if (qty === 0) continue;
-        await moveStockTx(tx, { productId: p.id, warehouseId: wh.id, qty, type: "ADJUST", userId: d.userId, comment: label });
+        await moveStockTx(tx, { productId: p.id, warehouseId: wh.id, qty, type: "ADJUST", userId: d.userId, comment: label, link });
       }
       total += qty * cost;
       await tx.stockDocItem.create({ data: { companyId, docId: doc.id, productId: p.id, name: p.name, qty, cost } });
