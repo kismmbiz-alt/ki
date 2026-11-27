@@ -1,9 +1,11 @@
-import { requireLocation, requirePermission } from "@/lib/auth";
+import { can, requireLocation, requirePermission } from "@/lib/auth";
+import { ReceiptForm } from "@/components/receipt-form";
+import { flattenGroups, indentLabel, withDescendants } from "@/lib/domain/groups";
 import { Card, Field, Input, PageHeader, Select } from "@/components/ui";
 import { Form, Submit } from "@/components/form";
 import { DocCart } from "@/components/doc-cart";
 import { DOC_LABEL } from "@/lib/domain/stock";
-import { defaultWarehouseId } from "@/lib/domain/places";
+import { defaultWarehouseId, placesFor } from "@/lib/domain/places";
 import { stockDocAction } from "../../actions";
 import { WarehousePills } from "../../_ui/wh-pills";
 
@@ -32,7 +34,38 @@ export default async function NewDocPage({ searchParams }: { searchParams: Promi
   ]);
   const list = products
     .map((p) => ({ id: p.id, name: p.name, sku: p.sku, barcode: p.barcode, qty: p.stocks[0]?.qty ?? 0, cost: p.cost }))
-    .filter((p) => type === "RECEIPT" || type === "INVENTORY" || p.qty > 0);
+    .filter((p) => type === "INVENTORY" || p.qty > 0);
+
+  if (type === "RECEIPT") {
+    const [all, groups, users, places] = await Promise.all([
+      ctx.db.product.findMany({ where: { isActive: true }, include: { stocks: { where: { locationId: loc.id } } }, orderBy: { name: "asc" } }),
+      ctx.db.productGroup.findMany({ select: { id: true, name: true, parentId: true } }),
+      ctx.db.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+      placesFor({ db: ctx.db, companyId: ctx.company.id }, loc.id, ctx.user),
+    ]);
+    return (
+      <>
+        <PageHeader title={`Поступление · ${loc.name}`} back="/stock/receipts" />
+        <Form action={stockDocAction} resetOnOk={false}>
+          <input type="hidden" name="type" value="RECEIPT" />
+          <ReceiptForm
+            products={all.map((p) => ({ id: p.id, name: p.name, sku: p.sku, barcode: p.barcode, groupId: p.groupId, qty: p.stocks.reduce((a, x) => a + x.qty, 0), cost: p.cost, price: p.price, repairPrice: p.repairPrice, minPrice: p.minPrice }))}
+            groups={flattenGroups(groups).map((g) => ({ id: g.id, label: indentLabel(g.name, g.depth), ids: withDescendants(groups, g.id) }))}
+            warehouses={warehouses.map((x) => ({ id: x.id, name: x.name }))}
+            suppliers={suppliers.map((x) => ({ id: x.id, name: x.name }))}
+            users={users}
+            cashboxes={places.cashboxes.map((c) => ({ id: c.id, name: c.name }))}
+            defaults={{ warehouseId: wh.id, userId: ctx.user.id, cashboxId: places.cashboxes[0]?.id }}
+            canPay={can(ctx.user, "cashOps")}
+            showCost={can(ctx.user, "cost")}
+          />
+          <div className="mt-4 flex gap-2">
+            <Submit>Создать поступление</Submit>
+          </div>
+        </Form>
+      </>
+    );
+  }
 
   return (
     <>
@@ -53,7 +86,7 @@ export default async function NewDocPage({ searchParams }: { searchParams: Promi
               <div className="text-sm text-slate-600">
                 {type === "TRANSFER" ? "Откуда" : "Склад"}: <b>{wh.name}</b>
               </div>
-              {(type === "RECEIPT" || type === "SUPPLIER_RETURN") && (
+              {type === "SUPPLIER_RETURN" && (
                 <Field label="Поставщик">
                   <Select name="supplierId" defaultValue="">
                     <option value="">—</option>
@@ -81,7 +114,7 @@ export default async function NewDocPage({ searchParams }: { searchParams: Promi
                 </Field>
               )}
               <Field label={type === "WRITEOFF" ? "Причина" : "Комментарий"}>
-                <Input name="comment" placeholder={type === "RECEIPT" ? "№ накладной" : ""} />
+                <Input name="comment" placeholder={""} />
               </Field>
               <Submit className="w-full">Провести</Submit>
             </div>

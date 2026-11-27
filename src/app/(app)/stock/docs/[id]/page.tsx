@@ -1,18 +1,30 @@
 import { notFound } from "next/navigation";
-import { requirePermission } from "@/lib/auth";
-import { Card, dt, PageHeader, Table } from "@/components/ui";
+import Link from "next/link";
+import { can, requirePermission } from "@/lib/auth";
+import { Form, Submit } from "@/components/form";
+import { placesFor } from "@/lib/domain/places";
+import { payStockDocAction } from "../../actions";
+import { Card, dt, Input, PageHeader, Select, Table } from "@/components/ui";
 import { rub } from "@/lib/money";
-import { DOC_LABEL } from "@/lib/domain/stock";
+import { DOC_LABEL, docDebt } from "@/lib/domain/stock";
 import { PrintMenu } from "@/components/order-widgets";
 import { printMenu } from "@/lib/print/templates";
 
-export default async function DocPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function DocPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ payErr?: string }> }) {
   const { id } = await params;
-  const { db, company } = await requirePermission("stock");
-  const d = await db.stockDoc.findUnique({ where: { id }, include: { items: true, location: true, toLocation: true, warehouse: true, toWarehouse: true, supplier: true } });
+  const { payErr } = await searchParams;
+  const ctx = await requirePermission("stock");
+  const { db, company } = ctx;
+  const d = await db.stockDoc.findUnique({ where: { id }, include: { items: true, location: true, toLocation: true, warehouse: true, toWarehouse: true, supplier: true, client: true } });
   if (!d) notFound();
   const user = d.userId ? await db.user.findUnique({ where: { id: d.userId } }) : null;
   const print = await printMenu(db, company.id, "stock", d.type);
+  const responsible = d.responsibleId && d.responsibleId !== d.userId ? await db.user.findUnique({ where: { id: d.responsibleId } }) : user;
+  const isReceipt = d.type === "RECEIPT";
+  const debt = docDebt(d);
+  const payments = isReceipt ? await db.cashTransaction.findMany({ where: { locationId: d.locationId, comment: { startsWith: `Поступление №${d.number}` } }, include: { cashbox: true, user: true }, orderBy: { createdAt: "asc" } }) : [];
+  const canPay = isReceipt && debt > 0 && can(ctx.user, "stockDocs") && can(ctx.user, "cashOps");
+  const { cashboxes } = canPay ? await placesFor({ db, companyId: company.id }, d.locationId, ctx.user) : { cashboxes: [] };
   return (
     <>
       <PageHeader title={`${DOC_LABEL[d.type]} №${d.number}`} back={`/stock/${({ RECEIPT: "receipts", TRANSFER: "transfers", WRITEOFF: "writeoffs", INVENTORY: "inventory", SUPPLIER_RETURN: "supplier-returns" } as const)[d.type]}`}>
@@ -46,12 +58,71 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
               </div>
             )}
             {d.supplier && <div>Поставщик: {d.supplier.name}</div>}
+            {d.client && (
+              <div>
+                От клиента:{" "}
+                <Link href={`/clients/${d.client.id}`} className="text-blue-600">
+                  {d.client.name}
+                </Link>{" "}
+                <span className="text-slate-500">{d.client.phone}</span>
+              </div>
+            )}
+            {d.inDocNo && (
+              <div>
+                Вход. документ: №{d.inDocNo}
+                {d.inDocDate ? ` от ${d.inDocDate.toLocaleDateString("ru-RU")}` : ""}
+              </div>
+            )}
+            {responsible && responsible.id !== user?.id && <div>Ответственный: {responsible.name}</div>}
             {d.comment && <div>Комментарий: {d.comment}</div>}
             <div>Провёл: {user?.name ?? "—"}</div>
             <div className="pt-2 font-semibold">Итого по закупке: {rub(d.total)}</div>
+            {isReceipt && d.total > 0 && (
+              <>
+                <div>Оплачено: {rub(d.paid)}</div>
+                {debt > 0 ? <div className="font-semibold text-red-600">Мы должны: {rub(debt)}</div> : <div className="font-medium text-green-600">Оплачено полностью</div>}
+              </>
+            )}
           </dl>
         </Card>
       </div>
+      {payErr && <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">Поступление создано, но оплата не записана: {payErr}</p>}
+      {isReceipt && (payments.length > 0 || canPay) && (
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_300px]">
+          <Table head={["Дата", "Оплата", "Касса", "Сумма", "Сотрудник"]} empty="Оплат пока нет">
+            {payments.map((p) => (
+              <tr key={p.id}>
+                <td className="px-3 py-2 whitespace-nowrap text-slate-500">{dt(p.createdAt)}</td>
+                <td className="px-3 py-2">{p.category}</td>
+                <td className="px-3 py-2">{p.cashbox.name}</td>
+                <td className="px-3 py-2 font-medium">{rub(-p.amount)}</td>
+                <td className="px-3 py-2 text-slate-500">{p.user?.name}</td>
+              </tr>
+            ))}
+          </Table>
+          {canPay && (
+            <Card title="Оплатить товар">
+              <Form action={payStockDocAction} className="space-y-2">
+                <input type="hidden" name="docId" value={d.id} />
+                <Input name="amount" inputMode="decimal" defaultValue={String(debt / 100)} required />
+                <Select name="cashboxId">
+                  {cashboxes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </Select>
+                <Select name="method" defaultValue="CASH">
+                  <option value="CASH">Наличные</option>
+                  <option value="CARD">Карта</option>
+                  <option value="TRANSFER">Перевод</option>
+                </Select>
+                <Submit className="w-full">Оплатить</Submit>
+              </Form>
+            </Card>
+          )}
+        </div>
+      )}
     </>
   );
 }

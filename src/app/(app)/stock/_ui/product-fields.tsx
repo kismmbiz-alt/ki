@@ -1,4 +1,4 @@
-import { Field, Input, Select } from "@/components/ui";
+import { Field, Input, inputCls, Select } from "@/components/ui";
 import { kopToInput } from "@/lib/money";
 import { flattenGroups, indentLabel } from "@/lib/domain/groups";
 
@@ -15,6 +15,12 @@ type P = {
   prices?: { priceTypeId: string; value: number }[];
   groupId?: string | null;
   supplierId?: string | null;
+  article?: string | null;
+  unit?: string;
+  warrantyDays?: number | null;
+  country?: string | null;
+  description?: string | null;
+  isSerial?: boolean;
 };
 
 /** Группы списком: подгруппы с отступом, обычным текстом. */
@@ -63,8 +69,11 @@ export function ProductFields({
             ))}
           </Select>
         </Field>
-        <Field label="Код / артикул">
+        <Field label="Код">
           <Input name="sku" defaultValue={p.sku ?? ""} />
+        </Field>
+        <Field label="Артикул">
+          <Input name="article" defaultValue={p.article ?? ""} />
         </Field>
         <Field label="Штрихкод" hint={p.name ? undefined : "пусто — создадим сами"}>
           <Input name="barcode" defaultValue={p.barcode ?? ""} placeholder="отсканируйте или оставьте пустым" />
@@ -91,7 +100,22 @@ export function ProductFields({
         <Field label="Мин. остаток, шт" hint="ниже — «заканчивается»">
           <Input name="minQty" inputMode="numeric" defaultValue={p.minQty || ""} />
         </Field>
+        <Field label="Ед. измерения">
+          <Input name="unit" defaultValue={p.unit ?? "шт"} />
+        </Field>
+        <Field label="Гарантия, дней">
+          <Input name="warrantyDays" inputMode="numeric" defaultValue={p.warrantyDays ?? ""} />
+        </Field>
+        <Field label="Страна">
+          <Input name="country" defaultValue={p.country ?? ""} />
+        </Field>
       </div>
+      <Field label="Характеристики" hint="память, цвет, состояние, комплект">
+        <textarea name="description" rows={2} defaultValue={p.description ?? ""} className={inputCls} />
+      </Field>
+      <label className="flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" name="isSerial" value="1" defaultChecked={p.isSerial} /> Серийный товар (IMEI / S/N)
+      </label>
     </>
   );
 }

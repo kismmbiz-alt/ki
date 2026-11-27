@@ -3,6 +3,8 @@ import type { Tenant, Tx } from "../db";
 import { prisma } from "../db";
 import { defaultWarehouseId } from "./places";
 import { logAction } from "./log";
+import { nextBarcode } from "./barcodes";
+import { addCashTransaction } from "./cash";
 
 type Place = { warehouseId?: string | null; locationId?: string | null };
 
@@ -110,10 +112,41 @@ export type DocInput = {
   /** Перемещение в другую точку: склад по умолчанию этой точки. */
   toLocationId?: string | null;
   supplierId?: string | null;
+  /** Поступление от клиента, который принёс свою технику. */
+  clientId?: string | null;
   userId: string;
+  responsibleId?: string | null;
+  inDocNo?: string | null;
+  inDocDate?: Date | null;
   comment?: string | null;
   /** Для инвентаризации qty — фактический остаток, для остальных — количество. */
-  items: { productId: string; qty: number; cost?: number }[];
+  items: DocItemInput[];
+};
+
+/** Новая карточка товара прямо из поступления. Цены — в копейках. */
+export type NewProductInput = {
+  name: string;
+  groupId?: string | null;
+  sku?: string | null;
+  article?: string | null;
+  barcode?: string | null;
+  unit?: string | null;
+  warrantyDays?: number | null;
+  country?: string | null;
+  description?: string | null;
+  isSerial?: boolean;
+  minQty?: number;
+};
+
+export type DocItemInput = {
+  productId?: string;
+  newProduct?: NewProductInput;
+  qty: number;
+  cost?: number;
+  /** Поступление: новые цены продажи (пусто — не менять). */
+  price?: number | null;
+  repairPrice?: number | null;
+  minPrice?: number | null;
 };
 
 /**
@@ -121,8 +154,11 @@ export type DocInput = {
  * Все строки проводятся одной транзакцией: если одна не прошла, не проходит ничего.
  */
 export async function createStockDoc({ db, companyId }: Tenant, d: DocInput) {
-  const items = d.items.filter((i) => i.productId && Number.isFinite(i.qty) && (d.type === "INVENTORY" ? i.qty >= 0 : i.qty > 0));
+  const items = d.items.filter((i) => (i.productId || (d.type === "RECEIPT" && i.newProduct?.name?.trim())) && Number.isFinite(i.qty) && (d.type === "INVENTORY" ? i.qty >= 0 : i.qty > 0));
   if (!items.length) throw new Error("Добавьте хотя бы один товар");
+  // штрихкоды новым товарам выдаём заранее: счётчик живёт вне транзакции
+  const codes = new Map<DocItemInput, string>();
+  for (const i of items) if (i.newProduct && !i.newProduct.barcode?.trim()) codes.set(i, await nextBarcode(companyId));
   return db.$transaction(async (tx) => {
     const wh = await warehouseOf(tx, d);
     let to: Awaited<ReturnType<typeof warehouseOf>> | null = null;
@@ -133,6 +169,8 @@ export async function createStockDoc({ db, companyId }: Tenant, d: DocInput) {
       if (to.id === wh.id) throw new Error("Склады отправления и назначения совпадают");
     }
     if (d.supplierId) await tx.supplier.findUniqueOrThrow({ where: { id: d.supplierId } });
+    if (d.clientId) await tx.client.findUniqueOrThrow({ where: { id: d.clientId } });
+    if (d.responsibleId) await tx.user.findUniqueOrThrow({ where: { id: d.responsibleId } });
     const { docSeq: number } = await prisma.company.update({ where: { id: companyId }, data: { docSeq: { increment: 1 } }, select: { docSeq: true } });
     const doc = await tx.stockDoc.create({
       data: {
@@ -144,20 +182,56 @@ export async function createStockDoc({ db, companyId }: Tenant, d: DocInput) {
         toLocationId: to?.locationId ?? null,
         toWarehouseId: to?.id ?? null,
         supplierId: d.type === "RECEIPT" || d.type === "SUPPLIER_RETURN" ? d.supplierId || null : null,
+        clientId: d.type === "RECEIPT" ? d.clientId || null : null,
         userId: d.userId,
+        responsibleId: d.responsibleId || d.userId,
+        inDocNo: d.inDocNo || null,
+        inDocDate: d.inDocDate ?? null,
         comment: d.comment || null,
       },
     });
     const label = `${DOC_LABEL[d.type]} №${number}`;
     let total = 0;
     for (const i of items) {
-      const p = await tx.product.findUniqueOrThrow({ where: { id: i.productId } });
+      let productId = i.productId;
+      if (!productId && i.newProduct) {
+        const n = i.newProduct;
+        if (n.groupId) await tx.productGroup.findUniqueOrThrow({ where: { id: n.groupId } });
+        const created = await tx.product.create({
+          data: {
+            companyId,
+            name: n.name.trim(),
+            groupId: n.groupId || null,
+            sku: n.sku || null,
+            article: n.article || null,
+            barcode: n.barcode?.trim() || codes.get(i) || null,
+            unit: n.unit?.trim() || "шт",
+            warrantyDays: n.warrantyDays ?? null,
+            country: n.country || null,
+            description: n.description || null,
+            isSerial: !!n.isSerial,
+            minQty: n.minQty ?? 0,
+            price: i.price ?? 0,
+            repairPrice: i.repairPrice ?? null,
+            minPrice: i.minPrice ?? null,
+            cost: i.cost ?? 0,
+            supplierId: d.supplierId || null,
+          },
+        });
+        productId = created.id;
+      }
+      const p = await tx.product.findUniqueOrThrow({ where: { id: productId } });
       let qty = i.qty;
       let cost = p.cost;
       if (d.type === "RECEIPT") {
         cost = i.cost ?? p.cost;
         await receiveTx(tx, { productId: p.id, warehouseId: wh.id, qty, cost, userId: d.userId, comment: label });
-        if (d.supplierId && !p.supplierId) await tx.product.update({ where: { id: p.id }, data: { supplierId: d.supplierId } });
+        const prices: { price?: number; repairPrice?: number; minPrice?: number; supplierId?: string } = {};
+        if (i.price != null) prices.price = i.price;
+        if (i.repairPrice != null) prices.repairPrice = i.repairPrice;
+        if (i.minPrice != null) prices.minPrice = i.minPrice;
+        if (d.supplierId && !p.supplierId) prices.supplierId = d.supplierId;
+        if (Object.keys(prices).length) await tx.product.update({ where: { id: p.id }, data: prices });
       } else if (d.type === "WRITEOFF" || d.type === "SUPPLIER_RETURN") {
         if (d.type === "SUPPLIER_RETURN") cost = i.cost ?? p.cost;
         await moveStockTx(tx, { productId: p.id, warehouseId: wh.id, qty: -qty, type: "WRITEOFF", userId: d.userId, comment: d.comment ? `${label}: ${d.comment}` : label });
@@ -184,4 +258,33 @@ export async function createStockDoc({ db, companyId }: Tenant, d: DocInput) {
     });
     return tx.stockDoc.update({ where: { id: doc.id }, data: { total } });
   });
+}
+
+/** Сколько ещё должны поставщику (клиенту) по поступлению. */
+export const docDebt = (d: { total: number; paid: number }) => Math.max(d.total - d.paid, 0);
+
+/**
+ * Оплата поступления из кассы: расход «Оплата за товар поставщику», долг по документу уменьшается.
+ * amount в копейках, больше нуля.
+ */
+export async function payStockDoc(
+  t: Tenant,
+  r: { docId: string; userId: string; amount: number; cashboxId?: string | null; method: "CASH" | "CARD" | "TRANSFER" },
+) {
+  const { db } = t;
+  const d = await db.stockDoc.findUniqueOrThrow({ where: { id: r.docId }, include: { supplier: true, client: true } });
+  if (d.type !== "RECEIPT") throw new Error("Оплачивать можно только поступление");
+  if (!(r.amount > 0)) throw new Error("Укажите сумму оплаты");
+  if (r.amount > docDebt(d)) throw new Error(`Нельзя заплатить больше долга: ${(docDebt(d) / 100).toLocaleString("ru-RU")} ₽`);
+  const who = d.supplier?.name ?? d.client?.name;
+  await addCashTransaction(t, {
+    locationId: d.locationId,
+    cashboxId: r.cashboxId,
+    userId: r.userId,
+    amount: -r.amount,
+    method: r.method,
+    category: d.clientId ? "Выкуп техники" : "Оплата за товар поставщику",
+    comment: `Поступление №${d.number}${who ? `, ${who}` : ""}`,
+  });
+  return db.stockDoc.update({ where: { id: d.id }, data: { paid: { increment: r.amount } } });
 }

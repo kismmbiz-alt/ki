@@ -272,10 +272,11 @@ model Client {
   inn              String?
   createdAt        DateTime  @default(now())
 
-  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  adSource AdSource? @relation(fields: [companyId, adSourceId], references: [companyId, id])
-  orders   Order[]
-  sales    Sale[]
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  adSource  AdSource?  @relation(fields: [companyId, adSourceId], references: [companyId, id])
+  orders    Order[]
+  stockDocs StockDoc[]
+  sales     Sale[]
 
   @@unique([companyId, id])
   @@index([companyId, phone])
@@ -409,20 +410,26 @@ model Service {
 }
 
 model Product {
-  id          String   @id @default(cuid())
-  companyId   String
-  name        String
-  sku         String?
-  barcode     String?
-  price       Int // розничная цена (продажа), коп.
-  repairPrice Int? // ремонтная цена (в заказ), коп.
-  minPrice    Int? // минимальная цена, ниже которой продавать нельзя, коп.
-  cost        Int      @default(0) // средняя закупочная, коп.
-  minQty      Int      @default(0)
-  groupId     String?
-  supplierId  String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
+  id           String   @id @default(cuid())
+  companyId    String
+  name         String
+  sku          String?
+  barcode      String?
+  price        Int // розничная цена (продажа), коп.
+  repairPrice  Int? // ремонтная цена (в заказ), коп.
+  minPrice     Int? // минимальная цена, ниже которой продавать нельзя, коп.
+  cost         Int      @default(0) // средняя закупочная, коп.
+  minQty       Int      @default(0)
+  article      String? // артикул производителя
+  unit         String   @default("шт")
+  warrantyDays Int? // гарантия, дней
+  country      String?
+  description  String? // характеристики: память, цвет, состояние…
+  isSerial     Boolean  @default(false) // серийный товар (IMEI / S/N)
+  groupId      String?
+  supplierId   String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
 
   company    Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   group      ProductGroup?  @relation(fields: [companyId, groupId], references: [companyId, id])
@@ -724,7 +731,12 @@ model StockDoc {
   warehouseId   String
   toWarehouseId String?
   supplierId    String?
+  clientId      String? // поступление от клиента (принёс свою технику)
   userId        String?
+  responsibleId String? // ответственный за документ
+  inDocNo       String? // входящий документ: номер накладной поставщика
+  inDocDate     DateTime?
+  paid          Int          @default(0) // оплачено поставщику/клиенту, коп.
   comment       String?
   total         Int          @default(0) // сумма по закупке, коп.
   createdAt     DateTime     @default(now())
@@ -735,6 +747,7 @@ model StockDoc {
   warehouse   Warehouse      @relation("WhFrom", fields: [companyId, warehouseId], references: [companyId, id])
   toWarehouse Warehouse?     @relation("WhTo", fields: [companyId, toWarehouseId], references: [companyId, id])
   supplier    Supplier?      @relation(fields: [companyId, supplierId], references: [companyId, id])
+  client      Client?        @relation(fields: [companyId, clientId], references: [companyId, id])
   items       StockDocItem[]
 
   @@unique([companyId, id])

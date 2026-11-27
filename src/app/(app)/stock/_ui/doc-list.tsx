@@ -13,7 +13,7 @@ export async function DocList({ types, action, actionLabel, title = "Склад"
   const { db, location, user } = await requirePermission("stock");
   const docs = await db.stockDoc.findMany({
     where: { type: { in: types }, ...(location ? { OR: [{ locationId: location.id }, { toLocationId: location.id }] } : {}) },
-    include: { warehouse: true, toWarehouse: { include: { location: true } }, supplier: true, _count: { select: { items: true } } },
+    include: { warehouse: true, toWarehouse: { include: { location: true } }, supplier: true, client: true, _count: { select: { items: true } } },
     orderBy: { createdAt: "desc" },
     take: 300,
   });
@@ -39,10 +39,15 @@ export async function DocList({ types, action, actionLabel, title = "Склад"
             <td className="px-3 py-2">{DOC_LABEL[d.type]}</td>
             <td className="px-3 py-2">{d.warehouse.name}</td>
             <td className="px-3 py-2 text-slate-600">
-              {d.supplier?.name ?? (d.toWarehouse ? `→ ${d.toWarehouse.name}${d.toWarehouse.locationId !== d.locationId ? ` (${d.toWarehouse.location.name})` : ""}` : d.comment)}
+              {d.supplier?.name ?? (d.client ? `Клиент: ${d.client.name}` : null) ?? (d.toWarehouse ? `→ ${d.toWarehouse.name}${d.toWarehouse.locationId !== d.locationId ? ` (${d.toWarehouse.location.name})` : ""}` : d.comment)}
             </td>
             <td className="px-3 py-2">{d._count.items}</td>
-            {showCost && <td className="px-3 py-2">{rub(d.total)}</td>}
+            {showCost && (
+              <td className="px-3 py-2 whitespace-nowrap">
+                {rub(d.total)}
+                {d.type === "RECEIPT" && d.total > d.paid && <div className="text-xs text-red-600">долг {rub(d.total - d.paid)}</div>}
+              </td>
+            )}
             <td className="px-3 py-2 text-slate-500">{d.userId ? users.get(d.userId) : ""}</td>
           </RowLink>
         ))}

@@ -81,3 +81,41 @@ describe("аналитика продаж по группам", () => {
     ]);
   });
 });
+
+import { createStockDoc, docDebt, payStockDoc } from "@/lib/domain/stock";
+
+describe("поступление как в LiveSklad", () => {
+  it("новая карточка товара с ценами, клиент-источник, частичная оплата и долг", async () => {
+    const a = await createCompany({ companyName: "Приход", ownerName: "Кирилл", email: `r-${uniq()}@test.ru`, password: "password123" });
+    const t = tenant(a.company.id);
+    const grp = await t.db.productGroup.create({ data: { companyId: a.company.id, name: "iPhone 13" } });
+    const old = await t.db.product.create({ data: { companyId: a.company.id, name: "Стекло", price: 50000 } });
+    const client = await t.db.client.create({ data: { companyId: a.company.id, name: "Иван", phone: "+79000000001" } });
+    const doc = await createStockDoc(t, {
+      type: "RECEIPT",
+      locationId: a.location.id,
+      clientId: client.id,
+      userId: a.owner.id,
+      inDocNo: "Н-15",
+      items: [
+        { newProduct: { name: "iPhone 13 128GB Midnight", groupId: grp.id, description: "128 ГБ, чёрный, АКБ 89%", isSerial: true, warrantyDays: 30 }, qty: 1, cost: 3000000, price: 4200000, minPrice: 3900000 },
+        { productId: old.id, qty: 10, cost: 5000, price: 60000 },
+      ],
+    });
+    expect(doc.total).toBe(3000000 + 50000);
+    expect(doc.clientId).toBe(client.id);
+    const np = await t.db.product.findFirstOrThrow({ where: { name: "iPhone 13 128GB Midnight" } });
+    expect(np).toMatchObject({ groupId: grp.id, price: 4200000, minPrice: 3900000, cost: 3000000, isSerial: true, warrantyDays: 30 });
+    expect(np.barcode).toHaveLength(13);
+    expect((await t.db.product.findUniqueOrThrow({ where: { id: old.id } })).price).toBe(60000);
+    expect((await t.db.stock.findFirstOrThrow({ where: { productId: np.id } })).qty).toBe(1);
+
+    await payStockDoc(t, { docId: doc.id, userId: a.owner.id, amount: 1000000, method: "CASH" });
+    const after = await t.db.stockDoc.findUniqueOrThrow({ where: { id: doc.id } });
+    expect(docDebt(after)).toBe(2050000);
+    await expect(payStockDoc(t, { docId: doc.id, userId: a.owner.id, amount: 9000000, method: "CASH" })).rejects.toThrow(/больше долга/);
+    const cash = await t.db.cashTransaction.findFirstOrThrow({ where: { comment: { startsWith: `Поступление №${doc.number}` } } });
+    expect(cash.amount).toBe(-1000000);
+    expect(cash.category).toBe("Выкуп техники");
+  });
+});

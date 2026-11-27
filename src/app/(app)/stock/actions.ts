@@ -1,10 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireLocation, requirePermission } from "@/lib/auth";
+import { can, requireLocation, requirePermission } from "@/lib/auth";
 import { int, opt, safe, str } from "@/lib/action";
 import { toKop } from "@/lib/money";
-import { createStockDoc, receiveStock, setStock, type DocInput } from "@/lib/domain/stock";
+import { createStockDoc, payStockDoc, receiveStock, setStock, type DocInput } from "@/lib/domain/stock";
+import { normalizePhone } from "@/lib/domain/orders";
 import { redirect } from "next/navigation";
 import { saveProductPrices } from "@/lib/domain/prices";
 import { nextBarcode } from "@/lib/domain/barcodes";
@@ -33,6 +34,12 @@ async function productFields(fd: FormData, db: Awaited<ReturnType<typeof require
     minPrice: optKop(fd, "minPrice"),
     ...(str(fd, "cost") ? { cost: toKop(fd.get("cost")) } : {}),
     minQty: int(fd, "minQty"),
+    article: opt(fd, "article"),
+    unit: str(fd, "unit") || "шт",
+    warrantyDays: str(fd, "warrantyDays") ? int(fd, "warrantyDays") : null,
+    country: opt(fd, "country"),
+    description: opt(fd, "description"),
+    isSerial: str(fd, "isSerial") === "1",
     groupId,
     supplierId,
   };
@@ -126,29 +133,95 @@ export const saveSupplierAction = safe(async (fd) => {
   return "Сохранено";
 });
 
+const kopOrNull = (v: unknown) => (v === undefined || v === null || String(v).trim() === "" ? null : toKop(String(v)));
+
+type RawItem = {
+  productId?: string;
+  qty: string | number;
+  cost?: string;
+  price?: string;
+  repairPrice?: string;
+  minPrice?: string;
+  newProduct?: { name: string; groupId?: string; sku?: string; article?: string; barcode?: string; unit?: string; warrantyDays?: string; country?: string; description?: string; isSerial?: boolean };
+};
+
 export const stockDocAction = safe(async (fd) => {
   const ctx = await requirePermission("stockDocs");
   const loc = requireLocation(ctx);
-  const raw = JSON.parse(str(fd, "items") || "[]") as { productId: string; qty: string | number; cost?: string }[];
-  const doc = await createStockDoc(
-    { db: ctx.db, companyId: ctx.company.id },
-    {
-      type: str(fd, "type") as DocInput["type"],
-      locationId: loc.id,
-      warehouseId: opt(fd, "warehouseId"),
-      toWarehouseId: opt(fd, "toWarehouseId"),
-      supplierId: opt(fd, "supplierId"),
-      userId: ctx.user.id,
-      comment: opt(fd, "comment"),
-      items: raw.map((r) => ({
-        productId: String(r.productId),
-        qty: Math.floor(Number(String(r.qty).replace(",", "."))),
-        cost: r.cost !== undefined && String(r.cost).trim() !== "" ? toKop(r.cost) : undefined,
-      })),
-    },
-  );
+  const t = { db: ctx.db, companyId: ctx.company.id };
+  const type = str(fd, "type") as DocInput["type"];
+  const raw = JSON.parse(str(fd, "items") || "[]") as RawItem[];
+
+  // от кого поступил товар: поставщик (можно сразу завести нового) или клиент
+  let supplierId = opt(fd, "supplierId");
+  let clientId: string | null = null;
+  const source = str(fd, "source") || "supplier";
+  if (type === "RECEIPT" && source === "client") {
+    supplierId = null;
+    const phone = normalizePhone(str(fd, "clientPhone"));
+    const name = str(fd, "clientName");
+    if (!phone) throw new Error("Укажите телефон клиента");
+    const found = await ctx.db.client.findFirst({ where: { phone } });
+    clientId = found?.id ?? (await ctx.db.client.create({ data: { companyId: ctx.company.id, name: name || "Клиент", phone } })).id;
+  } else if (type === "RECEIPT" && !supplierId && str(fd, "newSupplier")) {
+    const name = str(fd, "newSupplier");
+    const ex = await ctx.db.supplier.findFirst({ where: { name } });
+    supplierId = ex?.id ?? (await ctx.db.supplier.create({ data: { companyId: ctx.company.id, name } })).id;
+  }
+
+  const inDate = str(fd, "inDocDate");
+  const doc = await createStockDoc(t, {
+    type,
+    locationId: loc.id,
+    warehouseId: opt(fd, "warehouseId"),
+    toWarehouseId: opt(fd, "toWarehouseId"),
+    supplierId,
+    clientId,
+    userId: ctx.user.id,
+    responsibleId: opt(fd, "responsibleId"),
+    inDocNo: opt(fd, "inDocNo"),
+    inDocDate: inDate ? new Date(`${inDate}T00:00:00`) : null,
+    comment: opt(fd, "comment"),
+    items: raw.map((r) => ({
+      productId: r.productId ? String(r.productId) : undefined,
+      newProduct: r.newProduct
+        ? {
+            ...r.newProduct,
+            groupId: r.newProduct.groupId || null,
+            warrantyDays: r.newProduct.warrantyDays ? Math.max(0, Math.floor(Number(r.newProduct.warrantyDays))) || null : null,
+          }
+        : undefined,
+      qty: Math.floor(Number(String(r.qty).replace(",", "."))),
+      cost: r.cost !== undefined && String(r.cost).trim() !== "" ? toKop(r.cost) : undefined,
+      price: kopOrNull(r.price),
+      repairPrice: kopOrNull(r.repairPrice),
+      minPrice: kopOrNull(r.minPrice),
+    })),
+  });
+
+  // оплата сразу при поступлении
+  const pay = str(fd, "payAmount") ? toKop(fd.get("payAmount")) : 0;
+  let payErr = "";
+  if (type === "RECEIPT" && pay > 0) {
+    try {
+      if (!can(ctx.user, "cashOps")) throw new Error("нет права записывать расходы из кассы");
+      await payStockDoc(t, { docId: doc.id, userId: ctx.user.id, amount: Math.min(pay, doc.total), cashboxId: opt(fd, "cashboxId"), method: (str(fd, "method") || "CASH") as "CASH" });
+    } catch (e) {
+      payErr = e instanceof Error ? e.message : "ошибка";
+    }
+  }
   revalidatePath("/stock", "layout");
-  redirect(`/stock/docs/${doc.id}`);
+  redirect(`/stock/docs/${doc.id}${payErr ? `?payErr=${encodeURIComponent(payErr)}` : ""}`);
+});
+
+/** Оплата поступления (полностью или частями). */
+export const payStockDocAction = safe(async (fd) => {
+  const ctx = await requirePermission("stockDocs");
+  if (!can(ctx.user, "cashOps")) throw new Error("Нет права записывать расходы из кассы");
+  const docId = str(fd, "docId");
+  await payStockDoc({ db: ctx.db, companyId: ctx.company.id }, { docId, userId: ctx.user.id, amount: toKop(fd.get("amount")), cashboxId: opt(fd, "cashboxId"), method: (str(fd, "method") || "CASH") as "CASH" });
+  revalidatePath(`/stock/docs/${docId}`);
+  return "Оплата записана";
 });
 
 const PRICE_FIELDS: PriceField[] = ["cost", "price", "repairPrice", "minPrice"];
