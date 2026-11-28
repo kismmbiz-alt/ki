@@ -8,6 +8,7 @@ import type { Role } from "@prisma/client";
 import { prisma, tenantDb } from "./db";
 import { ALL_PERMS, can, isPerm, ROLE_PERMS, type Permission } from "./perms";
 import { isPlatformAdmin } from "./platform/admin";
+import { hasAccess } from "./platform/approval";
 
 const COOKIE = "crm_session";
 const SESSION_DAYS = 30;
@@ -93,6 +94,7 @@ async function loadSupport(session: NonNullable<Awaited<ReturnType<typeof loadSe
     log.company.supportUntil &&
     log.company.supportUntil > now &&
     !log.company.blockedAt &&
+    hasAccess(log.company.approval) &&
     (await isPlatformAdmin(session.user));
   const owner = valid
     ? await prisma.user.findFirst({
@@ -125,6 +127,8 @@ export async function requireUser(opts: { allowInReadOnlySupport?: boolean } = {
   if (session.user.totpEnabled && !session.twoFactorOk) redirect("/login/2fa");
   const support = await loadSupport(session);
   const platformAdmin = await isPlatformAdmin(session.user);
+  // новый партнёр ждёт подтверждения заявки или оплаты
+  if (!support && !platformAdmin && !hasAccess(session.user.company.approval)) redirect("/pending");
   const base = support ? support.owner : session.user;
   if (support && !support.write && !opts.allowInReadOnlySupport && (await headers()).get("next-action"))
     throw new Error("Режим поддержки: только просмотр. Компания не разрешила вносить изменения.");

@@ -170,6 +170,7 @@ export async function companiesActivity() {
         supportUntil: true,
         supportWrite: true,
         blockedAt: true,
+        approval: true,
       },
     }),
     prisma.user.groupBy({

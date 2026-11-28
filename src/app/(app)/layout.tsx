@@ -15,6 +15,7 @@ import {
   Wallet,
   Wrench,
 } from "lucide-react";
+import { prisma } from "@/lib/db";
 import { can, requireUser, ROLE_LABEL } from "@/lib/auth";
 import { logout } from "../(auth)/actions";
 import { switchLocation, toggleTheme } from "./actions";
@@ -23,6 +24,7 @@ import { SideNav, type SubItem } from "@/components/side-nav";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, company, locations, location, platformAdmin, support } = await requireUser();
+  const pendingRequests = platformAdmin && !support ? await prisma.company.count({ where: { approval: "PENDING" } }) : 0;
   const dark = (await cookies()).get("theme")?.value !== "light";
   const role = user.role;
   const I = { size: 18, strokeWidth: 1.8 };
@@ -129,11 +131,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     },
     {
       href: "/platform",
-      label: "Платформа",
+      label: pendingRequests ? `Платформа (${pendingRequests})` : "Платформа",
       icon: <ShieldCheck {...I} />,
       show: platformAdmin && !support,
       children: [
         { href: "/platform", label: "Стабильность", exact: true },
+        { href: "/platform/requests", label: pendingRequests ? `Заявки (${pendingRequests})` : "Заявки" },
         { href: "/platform/companies", label: "Компании" },
         { href: "/platform/invites", label: "Приглашения" },
         { href: "/platform/support", label: "Журнал поддержки" },
