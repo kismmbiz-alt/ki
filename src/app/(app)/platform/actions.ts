@@ -6,6 +6,7 @@ import { requirePlatformAdmin, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { int, safe, str } from "@/lib/action";
 import { createInvite } from "@/lib/platform/invites";
+import { APPROVAL_LABEL, isApprovalStatus, setApproval } from "@/lib/platform/approval";
 import { endSupport, grantSupport, revokeSupport, startSupport } from "@/lib/platform/support";
 
 // ---- владелец платформы ----
@@ -15,6 +16,17 @@ export const createInviteAction = safe(async (fd) => {
   await createInvite(str(fd, "note") || null, int(fd, "days", 14));
   revalidatePath("/platform/invites");
   return "Ссылка создана — скопируйте её ниже и отправьте коллеге";
+});
+
+export const setApprovalAction = safe(async (fd) => {
+  const { admin } = await requirePlatformAdmin();
+  const id = str(fd, "id");
+  const status = str(fd, "status");
+  if (!isApprovalStatus(status)) throw new Error("Неизвестный статус");
+  if (id === admin.companyId) throw new Error("Это ваша мастерская");
+  await setApproval(id, status, fd.has("note") ? str(fd, "note") : undefined);
+  revalidatePath("/platform", "layout");
+  return `Статус: ${APPROVAL_LABEL[status]}`;
 });
 
 export const deleteInviteAction = safe(async (fd) => {

@@ -3,6 +3,7 @@ import { NavLink } from "@/components/nav-link";
 export function PlatformTabs() {
   const tabs = [
     { href: "/platform", label: "Стабильность", exact: true },
+    { href: "/platform/requests", label: "Заявки" },
     { href: "/platform/companies", label: "Компании" },
     { href: "/platform/invites", label: "Приглашения" },
     { href: "/platform/support", label: "Журнал поддержки" },
