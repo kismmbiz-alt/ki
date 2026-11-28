@@ -104,7 +104,7 @@ export function payMethod(s: string): PayMethod {
   return "CARD";
 }
 
-/** Сотрудник по имени: «Голин Рихард» найдёт «Рихард Голин» и «Голин Р.». */
+/** Сотрудник по имени: «Голин Рихард» найдёт «Рихард Голин», «Голин Р.» и «Рихард». */
 function userMatcher(users: { id: string; name: string }[]) {
   const words = (s: string) => s.toLowerCase().replace(/ё/g, "е").split(/[\s.]+/).filter((w) => w.length > 1);
   return (name: string | null | undefined) => {
@@ -112,7 +112,9 @@ function userMatcher(users: { id: string; name: string }[]) {
     const want = words(name);
     const hit = users.find((u) => {
       const have = words(u.name);
-      return want.length > 0 && want.every((w) => have.some((h) => h === w || h.startsWith(w) || w.startsWith(h)));
+      const same = (w: string, h: string) => h === w || h.startsWith(w) || w.startsWith(h);
+      // «Голин Рихард» найдёт и сотрудника, записанного одним именем «Рихард»
+      return want.length > 0 && have.length > 0 && (want.every((w) => have.some((h) => same(w, h))) || have.every((h) => want.some((w) => same(w, h))));
     });
     return hit?.id ?? null;
   };
@@ -327,8 +329,20 @@ export async function importHistory(t: Tenant, data: HistoryData, o: { locationI
       if (o.dryRun) await boxId(s.cashbox);
       else if (s.cashbox) {
         const box = await boxId(s.cashbox);
-        const own = await db.cashTransaction.findMany({ where: { saleId: saleIds.get(s.number)! }, select: { id: true } });
+        const own = await db.cashTransaction.findMany({ where: { saleId: saleIds.get(s.number)! }, select: { id: true, amount: true, createdAt: true } });
         await relink(own.map((x) => x.id), box);
+        // оплаты по частям в разные дни: вернуть каждой её дату
+        const left = [...own];
+        for (const p of s.payments) {
+          const at = date(p.at ?? null);
+          const i = left.findIndex((x) => x.amount === kop(p.amount));
+          if (i < 0) continue;
+          const [x] = left.splice(i, 1);
+          if (at && x.createdAt.getTime() !== at.getTime()) {
+            await db.cashTransaction.update({ where: { id: x.id }, data: { createdAt: at } });
+            rep.relinked++;
+          }
+        }
         const retId = saleIds.get(RETURN_BASE + s.number);
         if (retId) {
           const ret = await db.cashTransaction.findMany({ where: { saleId: retId }, select: { id: true } });
