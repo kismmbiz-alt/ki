@@ -7,7 +7,17 @@
 
 export const LEGAL_VERSION = "2026-11-28";
 
-const env = (k: string, hint: string) => process.env[k]?.trim() || `[заполнить: ${hint}]`;
+// Реквизиты владельца площадки (из карты партнёра). Любое поле можно переопределить в .env.
+const DEFAULTS: Record<string, string> = {
+  LEGAL_NAME: "Индивидуальный предприниматель Чукавин Кирилл Витальевич",
+  LEGAL_INN: "891301363601",
+  LEGAL_OGRN: "ОГРНИП 322890100002243",
+  LEGAL_ADDRESS: "452689, Респ. Башкортостан, г. Нефтекамск, ул. Социалистическая, д. 76, кв. 148",
+  LEGAL_EMAIL: "Ki.smm@yandex.ru",
+  LEGAL_PHONE: "+7 908 359-30-09",
+};
+
+const env = (k: string, hint: string) => process.env[k]?.trim() || DEFAULTS[k] || `[заполнить: ${hint}]`;
 
 export function operator() {
   return {
