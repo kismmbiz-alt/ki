@@ -175,6 +175,8 @@ export const savePositionAction = safe(async (fd) => {
   const baseRole = str(fd, "baseRole") as Role;
   if (!["ADMIN", "MANAGER", "MASTER"].includes(baseRole)) throw new Error("Выберите тип доступа");
   const perms = fd.getAll("perms").map(String).filter(isPerm);
+  const md = str(fd, "maxDiscountPct");
+  const maxDiscountPct = md === "" ? null : Math.min(100, Math.max(0, Math.round(Number(md.replace(",", ".")) || 0)));
   if (id && str(fd, "delete") === "1") {
     if (await ctx.db.user.count({ where: { positionId: id } })) throw new Error("На этой должности есть сотрудники. Сначала переведите их на другую");
     await ctx.db.position.delete({ where: { id } });
@@ -185,9 +187,9 @@ export const savePositionAction = safe(async (fd) => {
   if (id) {
     // нельзя лишить самого себя права управлять сотрудниками
     if (ctx.user.positionId === id && !perms.includes("users")) throw new Error("Нельзя убрать у своей должности право «Сотрудники и должности»");
-    await ctx.db.position.update({ where: { id }, data: { name, baseRole, perms, sort: int(fd, "sort") } });
+    await ctx.db.position.update({ where: { id }, data: { name, baseRole, perms, maxDiscountPct, sort: int(fd, "sort") } });
     await ctx.db.user.updateMany({ where: { positionId: id, role: { not: "OWNER" } }, data: { role: baseRole } });
-  } else await ctx.db.position.create({ data: { companyId: ctx.company.id, name, baseRole, perms, sort: int(fd, "sort") } });
+  } else await ctx.db.position.create({ data: { companyId: ctx.company.id, name, baseRole, perms, maxDiscountPct, sort: int(fd, "sort") } });
   await logAction(ctx.db, { companyId: ctx.company.id, userId: ctx.user.id, kind: "users", text: `${id ? "Изменены права" : "Добавлена должность"} «${name}»: ${perms.length} прав` });
   revalidatePath("/", "layout");
   return id ? "Сохранено" : "Должность добавлена";

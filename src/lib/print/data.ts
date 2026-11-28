@@ -193,10 +193,13 @@ export async function saleCtx(db: TenantDb, company: Company, user: Who, id: str
   const s = await db.sale.findUnique({ where: { id }, include: { client: true, location: true, user: true, items: { include: { product: true } }, transactions: true } });
   if (!s) return null;
   const sign = s.isReturn ? -1 : 1;
-  const list = s.items.map((i) => ({ ...i, qty: Math.abs(i.qty) }));
+  // в чеке цена до скидки, а скидка — на позицию плюс доля скидки на весь чек
+  const list = s.items.map((i) => ({ ...i, qty: Math.abs(i.qty), price: i.price + i.discount }));
+  const nets = s.items.map((i) => Math.abs(i.qty) * i.price);
   const sums = list.map((i) => i.qty * i.price);
   const subtotal = sums.reduce((a, b) => a + b, 0);
-  const disc = spread(s.discount, sums);
+  const share = spread(s.discount, nets);
+  const disc = list.map((i, n) => share[n] + i.qty * i.discount);
   const total = Math.abs(s.total);
   const paid = Math.abs(s.transactions.reduce((a, t) => a + t.amount, 0)) + s.bonusPaid;
   const items = list.map((i, n) => itemVars({ ...i, sku: i.product.sku, barcode: i.product.barcode }, disc[n]));
@@ -214,10 +217,10 @@ export async function saleCtx(db: TenantDb, company: Company, user: Who, id: str
     Итого: money(total),
     ИтогоПрописью: rubWords(total),
     ИтогоБезСкидки: money(subtotal),
-    ИтогоСкидки: money(s.discount),
+    ИтогоСкидки: money(disc.reduce((a, b) => a + b, 0)),
     ИтогоТовары: money(total),
     СуммаТовары: money(subtotal),
-    СкидкаТовары: money(s.discount),
+    СкидкаТовары: money(disc.reduce((a, b) => a + b, 0)),
     ИтогоТоварыПрописью: rubWords(total),
     ИтогоЗакуп: money(list.reduce((a, i) => a + i.cost * i.qty, 0)),
     Внесено: money(paid),

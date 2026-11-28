@@ -443,6 +443,7 @@ model Product {
   country      String?
   description  String? // характеристики: память, цвет, состояние…
   isSerial     Boolean  @default(false) // серийный товар (IMEI / S/N)
+  isService    Boolean  @default(false) // работа/услуга: без остатков, всегда доступна к продаже
   groupId      String?
   supplierId   String?
   isActive     Boolean  @default(true)
@@ -571,7 +572,8 @@ model SaleItem {
   productId String
   name      String
   qty       Int
-  price     Int
+  price     Int // цена за единицу с учётом скидки на позицию, коп.
+  discount  Int    @default(0) // скидка на позицию за единицу, коп.
   cost      Int    @default(0)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -823,13 +825,14 @@ model CashShift {
 
 // Должность: название и набор прав. Тип доступа (baseRole) нужен для списков мастеров.
 model Position {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String
-  baseRole  Role     @default(MANAGER)
-  perms     String[]
-  sort      Int      @default(0)
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  companyId      String
+  name           String
+  baseRole       Role     @default(MANAGER)
+  perms          String[]
+  maxDiscountPct Int? // максимальная скидка в продаже, %; пусто — без ограничения
+  sort           Int      @default(0)
+  createdAt      DateTime @default(now())
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   users   User[]

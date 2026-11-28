@@ -25,6 +25,8 @@ export async function moveStockTx(
   m: Place & { productId: string; qty: number; type: StockMoveType; userId?: string | null; cost?: number; comment?: string; link?: string },
 ) {
   const product = await tx.product.findUniqueOrThrow({ where: { id: m.productId } });
+  // работы и услуги не хранятся на складе: остатков и движений у них нет
+  if (product.isService) return 0;
   const companyId = product.companyId;
   const wh = await warehouseOf(tx, m);
   const stock = await tx.stock.upsert({

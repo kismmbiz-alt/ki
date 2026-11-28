@@ -21,6 +21,7 @@ type P = {
   country?: string | null;
   description?: string | null;
   isSerial?: boolean;
+  isService?: boolean;
 };
 
 /** Группы списком: подгруппы с отступом, обычным текстом. */
@@ -35,7 +36,9 @@ export function ProductFields({
   defaultGroupId,
   priceTypes = [],
   showCost = true,
+  service,
 }: {
+  service?: boolean;
   showCost?: boolean;
   p?: P;
   groups: G[];
@@ -45,6 +48,12 @@ export function ProductFields({
 }) {
   return (
     <>
+      <Field label="Что это" hint="у работ и услуг нет остатков: они всегда доступны в продаже и не списываются со склада">
+        <Select name="isService" defaultValue={(p.isService ?? service) ? "1" : ""}>
+          <option value="">Товар — есть количество и остатки</option>
+          <option value="1">Работа / услуга — без количества</option>
+        </Select>
+      </Field>
       <Field label="Название *">
         <Input name="name" required defaultValue={p.name} placeholder="Дисплей iPhone 11 (оригинал)" />
       </Field>

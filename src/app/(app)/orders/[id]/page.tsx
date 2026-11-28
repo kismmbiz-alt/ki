@@ -51,10 +51,11 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
   if (!can(user, "allOrders") && order.masterId !== user.id) notFound();
   if (user.role !== "OWNER" && user.positionId && order.status.denySee.includes(user.positionId)) notFound();
 
-  const [statuses, staff, services, products, sources, dicts] = await Promise.all([
+  const [statuses, staff, services, works, products, sources, dicts] = await Promise.all([
     db.orderStatus.findMany({ orderBy: { sort: "asc" } }),
     db.user.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     db.service.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+    db.product.findMany({ where: { isActive: true, isService: true }, orderBy: { name: "asc" }, select: { id: true, name: true, price: true, repairPrice: true } }),
     db.product.findMany({
       where: { isActive: true, stocks: { some: { locationId: order.locationId, qty: { gt: 0 } } } },
       include: { stocks: { where: { locationId: order.locationId, qty: { gt: 0 } }, include: { warehouse: true } } },
@@ -396,6 +397,15 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
                           {s.name} · {rub(s.price)}
                         </option>
                       ))}
+                      {works.length > 0 && (
+                        <optgroup label="Работы и услуги со склада">
+                          {works.map((w) => (
+                            <option key={w.id} value={`p:${w.id}`}>
+                              {w.name} · {rub(w.repairPrice ?? w.price)}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
                     </Select>
                     <Input name="name" placeholder="или название работы" />
                     <div className="grid grid-cols-3 gap-2">

@@ -4,7 +4,7 @@ import { toCsv } from "@/lib/csv";
 /** Выгрузка товаров и остатков в CSV для Excel. */
 export async function GET() {
   const { db, location, user } = await requirePermission("stock");
-  const products = await db.product.findMany({ where: { isActive: true }, include: { stocks: true, group: true, supplier: true }, orderBy: { name: "asc" } });
+  const products = await db.product.findMany({ where: { isActive: true, isService: false }, include: { stocks: true, group: true, supplier: true }, orderBy: { name: "asc" } });
   const showCost = can(user, "cost");
   const k = (v: number | null | undefined) => (v == null ? "" : v / 100);
   const rows = products.map((p) => [
