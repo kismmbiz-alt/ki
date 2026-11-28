@@ -73,11 +73,20 @@ export const assignMasterAction = safe(async (fd) => {
 
 export const addServiceAction = safe(async (fd) => {
   const { ctx, t, order } = await assertOrderAccess(str(fd, "orderId"));
-  const serviceId = opt(fd, "serviceId");
+  let serviceId = opt(fd, "serviceId");
+  let name = str(fd, "name");
   let price = str(fd, "price") ? toKop(fd.get("price")) : null;
+  // работа из справочника склада (Склад → Работы и услуги)
+  if (serviceId?.startsWith("p:")) {
+    const w = await ctx.db.product.findUniqueOrThrow({ where: { id: serviceId.slice(2) } });
+    if (!w.isService) throw new Error("Это товар, а не работа");
+    name = name || w.name;
+    if (price === null) price = w.repairPrice ?? w.price;
+    serviceId = null;
+  }
   if (price === null && serviceId) price = (await ctx.db.service.findUniqueOrThrow({ where: { id: serviceId } })).price;
   if (price === null) throw new Error("Укажите цену");
-  await orders.addService(t, order.id, ctx.user.id, { serviceId, name: str(fd, "name"), price, qty: int(fd, "qty", 1), warrantyDays: warranty(fd) });
+  await orders.addService(t, order.id, ctx.user.id, { serviceId, name, price, qty: int(fd, "qty", 1), warrantyDays: warranty(fd) });
   revalidatePath(`/orders/${order.id}`);
   return "Работа добавлена";
 });

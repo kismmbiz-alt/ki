@@ -19,6 +19,9 @@ export default function LoginPage() {
       <p className="mt-4 text-center text-sm text-slate-500">
         Нет аккаунта? <Link href="/register" className="text-blue-600 hover:underline">Зарегистрировать мастерскую</Link>
       </p>
+      <p className="mt-2 text-center text-xs text-slate-400">
+        <Link href="/legal/terms" className="hover:underline">Соглашение</Link> · <Link href="/legal/privacy" className="hover:underline">Политика ПД</Link>
+      </p>
     </>
   );
 }

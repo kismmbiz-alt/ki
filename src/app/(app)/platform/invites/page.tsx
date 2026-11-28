@@ -51,19 +51,22 @@ export default async function PlatformInvitesPage() {
           <ol className="list-decimal space-y-1 pl-5 text-sm text-slate-600">
             <li>Нажмите «Создать ссылку» и затем «Копировать».</li>
             <li>Отправьте ссылку коллеге в Telegram или WhatsApp.</li>
-            <li>Коллега открывает ссылку, вводит название мастерской, email и пароль — и сразу попадает в свою CRM.</li>
+            <li>Коллега открывает ссылку, вводит данные мастерской и соглашается с документами площадки.</li>
+            <li>Его заявка появляется во вкладке «Заявки». Доступ откроется, когда вы нажмёте «Подтвердить» или поставите статус «Оплачено».</li>
             <li>Его мастерская полностью отдельная: он не видит ваши данные, вы — его.</li>
           </ol>
-          <p className="mt-3 text-xs text-slate-500">
-            Одна ссылка — одна мастерская.{" "}
-            {code ? (
-              <>
-                Общий код приглашения тоже работает: <b>{code}</b>
-              </>
-            ) : (
-              "Регистрация без кода открыта для всех."
-            )}
-          </p>
+          <p className="mt-3 text-xs text-slate-500">Одноразовая ссылка — одна мастерская.</p>
+          {code ? (
+            <div className="mt-3 rounded-lg border border-slate-200 p-3">
+              <div className="mb-1 text-xs font-medium text-slate-500">Ваша постоянная ссылка для партнёров (работает много раз)</div>
+              <div className="flex items-center gap-2">
+                <code className="break-all text-xs">{`${base}/register?code=${code}`}</code>
+                <CopyButton text={`${base}/register?code=${code}`} />
+              </div>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-slate-500">Регистрация открыта без кода, но каждая заявка всё равно ждёт вашего подтверждения.</p>
+          )}
         </Card>
       </div>
       <Table head={["Создана", "Кому", "Ссылка", "Статус", ""]} empty="Приглашений пока нет">

@@ -16,7 +16,7 @@ export function MarketTabs({ user }: { user: U }) {
     { href: "/market/settings", label: "Настройки", exact: false, show: has("buybackSources") },
   ].filter((t) => t.show);
   return (
-    <div className="mb-4 flex flex-wrap gap-1 border-b border-slate-200">
+    <div className="tabbar mb-4 flex-wrap">
       {tabs.map((t) => (
         <NavLink key={t.href} href={t.href} exact={t.exact}>
           {t.label}

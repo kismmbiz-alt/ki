@@ -54,14 +54,19 @@ export default async function SalePage({ params, searchParams }: { params: Promi
                 <tr key={i.id}>
                   <td className="py-2">{i.name}</td>
                   <td className="py-2 text-right">{i.qty}</td>
-                  <td className="py-2 text-right">{rub(i.price)}</td>
+                  <td className="py-2 text-right">
+                    {i.discount > 0 && <div className="text-xs text-slate-400 line-through">{rub(i.price + i.discount)}</div>}
+                    {rub(i.price)}
+                    {i.discount > 0 && <div className="text-xs text-emerald-600">скидка {rub(i.discount)}</div>}
+                  </td>
                   <td className="py-2 text-right">{rub(i.qty * i.price)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <div className="mt-3 space-y-1 text-right text-sm">
-            {s.discount > 0 && <div className="text-slate-500">Скидка: −{rub(s.discount)}</div>}
+            {s.items.some((i) => i.discount > 0) && <div className="text-slate-500">Скидки на позиции: −{rub(s.items.reduce((a, i) => a + i.qty * i.discount, 0))}</div>}
+            {s.discount > 0 && <div className="text-slate-500">Скидка на чек: −{rub(s.discount)}</div>}
             <div className="text-lg font-semibold">Итого: {rub(s.isReturn ? s.total : sum - s.discount)}</div>
           </div>
         </Card>

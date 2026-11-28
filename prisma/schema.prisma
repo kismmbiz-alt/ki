@@ -20,6 +20,16 @@ enum Role {
   MASTER
 }
 
+// Статус заявки мастерской на подключение к платформе.
+enum ApprovalStatus {
+  PENDING // новая заявка
+  TALKING // идёт разговор
+  AWAITING_PAYMENT // ждём оплату
+  PAID // оплачено — доступ открыт
+  APPROVED // одобрена — доступ открыт
+  REJECTED // отказ
+}
+
 enum StatusKind {
   NEW
   IN_PROGRESS
@@ -70,19 +80,19 @@ enum StockDocType {
 }
 
 model Company {
-  id                    String    @id @default(cuid())
+  id                    String         @id @default(cuid())
   name                  String
   phone                 String?
   address               String?
   receiptTerms          String? // текст условий в квитанции
-  warrantyDays          Int       @default(30)
-  orderSeq              Int       @default(0)
-  saleSeq               Int       @default(0)
-  docSeq                Int       @default(0)
-  marketMargin          Int       @default(500000) // сколько хотим заработать на выкупе, коп.
-  bonusFixed            Int       @default(0) // бонус сотруднику за каждый выкуп, коп.
-  bonusPercent          Int       @default(0) // бонус в % от прибыли после продажи выкупленного
-  avitoRegion           String    @default("rossiya") // регион Авито для оценки: часть ссылки avito.ru/<регион>
+  warrantyDays          Int            @default(30)
+  orderSeq              Int            @default(0)
+  saleSeq               Int            @default(0)
+  docSeq                Int            @default(0)
+  marketMargin          Int            @default(500000) // сколько хотим заработать на выкупе, коп.
+  bonusFixed            Int            @default(0) // бонус сотруднику за каждый выкуп, коп.
+  bonusPercent          Int            @default(0) // бонус в % от прибыли после продажи выкупленного
+  avitoRegion           String         @default("rossiya") // регион Авито для оценки: часть ссылки avito.ru/<регион>
   // реквизиты (подставляются в печатные формы)
   email                 String?
   inn                   String?
@@ -98,32 +108,36 @@ model Company {
   corrAccount           String?
   account               String?
   companyNote           String? // доп. информация для бланков
-  currency              String    @default("RUB")
+  currency              String         @default("RUB")
   // цены
-  salePriceKey          String    @default("retail") // какая цена ставится в продаже
-  orderPriceKey         String    @default("repair") // какая цена ставится в заказе
-  hideMinPrice          Boolean   @default(false)
+  salePriceKey          String         @default("retail") // какая цена ставится в продаже
+  orderPriceKey         String         @default("repair") // какая цена ставится в заказе
+  hideMinPrice          Boolean        @default(false)
   // статусы
-  statusChains          Boolean   @default(false) // переходы только по цепочке
-  barcodeSeq            Int       @default(0)
+  statusChains          Boolean        @default(false) // переходы только по цепочке
+  barcodeSeq            Int            @default(0)
   // бонусная система: проценты в сотых долях (300 = 3%), суммы в копейках (1 балл = 1 ₽)
-  salaryPeriodType      String    @default("MONTH") // MONTH или WEEK — расчётный период зарплаты
-  salaryPeriodCount     Int       @default(1)
+  salaryPeriodType      String         @default("MONTH") // MONTH или WEEK — расчётный период зарплаты
+  salaryPeriodCount     Int            @default(1)
   salaryPeriodStart     DateTime? // начало первого периода
-  bonusEnabled          Boolean   @default(false)
-  bonusSalePct          Int       @default(300) // начисление с продаж
-  bonusOrderPct         Int       @default(300) // начисление с выданных заказов
-  bonusMinCheck         Int       @default(0) // минимальный чек для начисления
-  bonusMaxPayPct        Int       @default(3000) // сколько процентов чека можно оплатить баллами
-  bonusDelayDays        Int       @default(0) // баллы становятся доступны через N дней
-  bonusExpireDays       Int       @default(0) // баллы сгорают через N дней, 0 — не сгорают
-  bonusWelcome          Int       @default(0) // приветственные баллы при регистрации
-  bonusAccrueOnBonusPay Boolean   @default(false) // начислять ли на часть, оплаченную баллами
+  bonusEnabled          Boolean        @default(false)
+  bonusSalePct          Int            @default(300) // начисление с продаж
+  bonusOrderPct         Int            @default(300) // начисление с выданных заказов
+  bonusMinCheck         Int            @default(0) // минимальный чек для начисления
+  bonusMaxPayPct        Int            @default(3000) // сколько процентов чека можно оплатить баллами
+  bonusDelayDays        Int            @default(0) // баллы становятся доступны через N дней
+  bonusExpireDays       Int            @default(0) // баллы сгорают через N дней, 0 — не сгорают
+  bonusWelcome          Int            @default(0) // приветственные баллы при регистрации
+  bonusAccrueOnBonusPay Boolean        @default(false) // начислять ли на часть, оплаченную баллами
   // платформа: доступ поддержки и приостановка
   supportUntil          DateTime? // до какого времени поддержка может войти в CRM
-  supportWrite          Boolean   @default(false) // поддержке разрешено вносить изменения
+  supportWrite          Boolean        @default(false) // поддержке разрешено вносить изменения
   blockedAt             DateTime? // доступ приостановлен владельцем платформы
-  createdAt             DateTime  @default(now())
+  // заявка партнёра: доступ к CRM только после одобрения или оплаты
+  approval              ApprovalStatus @default(APPROVED)
+  approvalNote          String? // заметки владельца платформы по заявке
+  approvalAt            DateTime? // когда менялся статус
+  createdAt             DateTime       @default(now())
 
   locations      Location[]
   users          User[]
@@ -161,6 +175,7 @@ model Company {
   salaryRules    SalaryRule[]
   salaryEntries  SalaryEntry[]
   cashTxLogs     CashTxLog[]
+  saleTiles      SaleTile[]
   bonusTxs       BonusTx[]
 }
 
@@ -442,6 +457,7 @@ model Product {
   country      String?
   description  String? // характеристики: память, цвет, состояние…
   isSerial     Boolean  @default(false) // серийный товар (IMEI / S/N)
+  isService    Boolean  @default(false) // работа/услуга: без остатков, всегда доступна к продаже
   groupId      String?
   supplierId   String?
   isActive     Boolean  @default(true)
@@ -570,7 +586,8 @@ model SaleItem {
   productId String
   name      String
   qty       Int
-  price     Int
+  price     Int // цена за единицу с учётом скидки на позицию, коп.
+  discount  Int    @default(0) // скидка на позицию за единицу, коп.
   cost      Int    @default(0)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -822,13 +839,14 @@ model CashShift {
 
 // Должность: название и набор прав. Тип доступа (baseRole) нужен для списков мастеров.
 model Position {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String
-  baseRole  Role     @default(MANAGER)
-  perms     String[]
-  sort      Int      @default(0)
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  companyId      String
+  name           String
+  baseRole       Role     @default(MANAGER)
+  perms          String[]
+  maxDiscountPct Int? // максимальная скидка в продаже, %; пусто — без ограничения
+  sort           Int      @default(0)
+  createdAt      DateTime @default(now())
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   users   User[]
@@ -984,6 +1002,19 @@ model SalaryRule {
 }
 
 // Ручные записи по зарплате: бонус, штраф, выплата.
+// Плитки на экране продажи: PRIORITY — что начальство просит продать, FREQUENT — закреплённые частые товары.
+model SaleTile {
+  id        String @id @default(cuid())
+  companyId String
+  side      String // PRIORITY или FREQUENT
+  slot      Int // 0..3
+  productId String
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, side, slot])
+}
+
 // История изменений кассовой операции: создание, правка, удаление.
 model CashTxLog {
   id        String   @id @default(cuid())
@@ -1102,4 +1133,19 @@ model BonusTx {
   client  Client  @relation(fields: [companyId, clientId], references: [companyId, id], onDelete: Cascade)
 
   @@index([companyId, clientId, createdAt])
+}
+
+// Согласие с документами площадки при регистрации: кто, когда, какая версия, с какого адреса.
+model ConsentLog {
+  id        String   @id @default(cuid())
+  userId    String
+  companyId String
+  version   String // версия документов
+  docs      String[] // какие документы приняты
+  ip        String?
+  userAgent String?
+  at        DateTime @default(now())
+
+  @@index([companyId])
+  @@index([userId])
 }

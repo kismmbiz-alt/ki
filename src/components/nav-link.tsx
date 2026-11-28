@@ -24,7 +24,7 @@ export function NavLink({ href, children, icon, variant = "tab", exact = false }
   return (
     <Link
       href={href}
-      className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm transition ${active ? "border-blue-600 font-medium text-slate-900" : "border-transparent text-slate-500 hover:text-slate-800"}`}
+      className={`tab ${active ? "tab-on" : ""}`}
     >
       {children}
     </Link>

@@ -81,14 +81,15 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
 
   return (
     <>
-      <PageHeader title={p.name} back="/stock">
+      <PageHeader title={p.name} back={p.isService ? "/stock?t=works" : "/stock"}>
+        {p.isService && <span className="rounded-md bg-violet-100 px-2 py-1 text-xs font-medium text-violet-700">работа / услуга</span>}
         {!p.isActive && <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-500">в архиве</span>}
       </PageHeader>
       <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
         <div className="min-w-0 space-y-4">
           <div className="grid gap-3 sm:grid-cols-4">
-            <Mini label={`На «${location?.name ?? ""}»`} value={`${here} шт`} />
-            <Mini label="Всего по всем складам" value={`${p.stocks.reduce((s, x) => s + x.qty, 0)} шт`} />
+            <Mini label={`На «${location?.name ?? ""}»`} value={p.isService ? "без остатка" : `${here} шт`} />
+            <Mini label="Всего по всем складам" value={p.isService ? "—" : `${p.stocks.reduce((s, x) => s + x.qty, 0)} шт`} />
             <Mini label="Розничная" value={rub(p.price)} />
             {showCost ? <Mini label="Закупочная (средняя)" value={rub(p.cost)} /> : <Mini label="Ремонтная" value={p.repairPrice != null ? rub(p.repairPrice) : "—"} />}
           </div>
@@ -205,7 +206,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
           </Table>
         </div>
         <div className="space-y-4">
-          <Card title="Карточка товара">
+          <Card title={p.isService ? "Карточка работы" : "Карточка товара"}>
             <Form action={updateProductAction} className="space-y-3" resetOnOk={false}>
               <input type="hidden" name="id" value={p.id} />
               <ProductFields p={p} groups={groups} suppliers={suppliers} priceTypes={priceTypes} showCost={showCost} />
@@ -215,7 +216,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
               <Submit>Сохранить</Submit>
             </Form>
           </Card>
-          {canEdit && (
+          {canEdit && !p.isService && (
           <Card title="Быстрый приход">
             <Form action={receiveAction} className="space-y-2">
               <input type="hidden" name="productId" value={p.id} />
@@ -233,7 +234,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
             </Form>
           </Card>
           )}
-          {canEdit && (
+          {canEdit && !p.isService && (
           <Card title="Инвентаризация">
             <Form action={inventoryAction} className="space-y-2">
               <input type="hidden" name="productId" value={p.id} />

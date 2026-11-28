@@ -69,10 +69,10 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
             <Link
               key={t.key}
               href={`/orders?${qs({ tab: t.key, status: undefined })}`}
-              className={`flex items-center gap-1.5 border-b-2 px-2.5 py-1.5 text-sm ${on ? "border-blue-600 font-medium text-slate-900" : "border-transparent text-slate-500 hover:text-slate-800"}`}
+              className={`tab flex items-center gap-1.5 ${on ? "tab-on" : ""}`}
             >
               {t.label}
-              {n > 0 && t.key !== "all" && t.key !== "closed" && <span className="rounded bg-slate-100 px-1.5 text-xs text-slate-600">{n}</span>}
+              {n > 0 && t.key !== "all" && t.key !== "closed" && <span className={`rounded-full px-1.5 text-xs font-semibold ${on ? "bg-white/25" : "bg-slate-100 text-slate-600"}`}>{n}</span>}
             </Link>
           );
         })}

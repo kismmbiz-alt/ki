@@ -2,6 +2,7 @@ import { requirePlatformAdmin } from "@/lib/auth";
 import { companiesActivity } from "@/lib/platform/stats";
 import { Badge, dOnly, dt, Input, PageHeader, Stat, Table } from "@/components/ui";
 import { Form, Submit } from "@/components/form";
+import { APPROVAL_COLOR, APPROVAL_LABEL } from "@/lib/platform/approval";
 import { blockCompanyAction, startSupportAction } from "../actions";
 import { ago, PlatformTabs } from "../tabs";
 
@@ -38,6 +39,7 @@ export default async function PlatformCompaniesPage() {
               {c.phone && <div className="text-xs text-slate-500">{c.phone}</div>}
               {c.id === admin.companyId && <Badge color="#4f6bff">ваша</Badge>}
               {c.blockedAt && <Badge color="#ef4444">приостановлена</Badge>}
+              {c.approval !== "APPROVED" && <Badge color={APPROVAL_COLOR[c.approval]}>{APPROVAL_LABEL[c.approval]}</Badge>}
             </td>
             <td className="px-3 py-2">
               <div>{c.owner?.name}</div>

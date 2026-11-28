@@ -13,13 +13,15 @@ import { StockTabs } from "./_ui/tabs";
 import { WarehousePills } from "./_ui/wh-pills";
 import { groupOptions, ProductFields } from "./_ui/product-fields";
 
-type SP = { q?: string; f?: string; g?: string; new?: string; w?: string };
+type SP = { q?: string; f?: string; g?: string; new?: string; w?: string; t?: string };
 
 export default async function StockPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const { db, location, locations, user } = await requirePermission("stock");
-  const filter = sp.f ?? "pos";
-  const where: Prisma.ProductWhereInput = { isActive: filter !== "archive" };
+  // как в LiveSklad: товары (с остатками) и работы/услуги (без количества) — разные списки
+  const works = sp.t === "works";
+  const filter = sp.f ?? (works ? "all" : "pos");
+  const where: Prisma.ProductWhereInput = { isActive: filter !== "archive", isService: works };
   const q = sp.q?.trim();
   // сканер: точное совпадение штрихкода — сразу в карточку товара
   if (q && /^\S{4,}$/.test(q)) {
@@ -37,8 +39,8 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
   const [suppliers, products, counts, total] = await Promise.all([
     db.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     db.product.findMany({ where, include: { stocks: true, group: true, supplier: true }, orderBy: { name: "asc" }, take: 2000 }),
-    db.product.groupBy({ by: ["groupId"], where: { isActive: true }, _count: true }),
-    db.product.count({ where: { isActive: true } }),
+    db.product.groupBy({ by: ["groupId"], where: { isActive: true, isService: works }, _count: true }),
+    db.product.count({ where: { isActive: true, isService: works } }),
   ]);
   const countBy = new Map(counts.map((c) => [c.groupId, c._count]));
   const countIn = (id: string) => withDescendants(groups, id).reduce((n, g) => n + (countBy.get(g) ?? 0), 0);
@@ -76,16 +78,24 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
           </a>
         )}
         <Link href={qs({ new: "1" })} className={btn()}>
-          <Plus size={16} /> Товар
+          <Plus size={16} /> {works ? "Работа" : "Товар"}
         </Link>
       </PageHeader>
       <StockTabs />
+      <div className="tabbar mb-3">
+        <Link href={`/stock${sp.w ? `?w=${sp.w}` : ""}`} className={works ? "tab" : "tab tab-on"}>
+          Товары
+        </Link>
+        <Link href={`/stock?t=works${sp.w ? `&w=${sp.w}` : ""}`} className={works ? "tab tab-on" : "tab"}>
+          Работы и услуги
+        </Link>
+      </div>
       <WarehousePills warehouses={warehouses} current={wh?.id ?? null} href={(w) => qs({ w: w ?? undefined })} allLabel={warehouses.length > 1 ? "Все склады" : undefined} manage={can(user, "settings")} />
 
       <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
         <aside className="space-y-3">
           <div className="rounded-xl border border-slate-200 bg-white p-2 text-sm">
-            <GroupLink href={qs({ g: undefined })} on={!sp.g} label="Все товары" n={total} />
+            <GroupLink href={qs({ g: undefined })} on={!sp.g} label={works ? "Все работы" : "Все товары"} n={total} />
             <GroupLink href={qs({ g: "none" })} on={sp.g === "none"} label="Без группы" n={countBy.get(null) ?? 0} />
             <div className="my-1 border-t border-slate-100" />
             {visible.map((g) => (
@@ -138,15 +148,17 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
 
         <div className="min-w-0 space-y-3">
           {sp.new && (
-            <Card title={`Новый товар · приход на «${(wh ?? warehouses[0])?.name ?? location?.name ?? ""}»`} actions={<Link href={qs({})} className="text-sm text-slate-500">Закрыть</Link>}>
+            <Card title={works ? "Новая работа или услуга" : `Новый товар · приход на «${(wh ?? warehouses[0])?.name ?? location?.name ?? ""}»`} actions={<Link href={qs({})} className="text-sm text-slate-500">Закрыть</Link>}>
               <Form action={createProductAction} className="space-y-3">
                 <input type="hidden" name="warehouseId" value={(wh ?? warehouses[0])?.id ?? ""} />
-                <ProductFields groups={groups} suppliers={suppliers} defaultGroupId={sp.g !== "none" ? sp.g : undefined} showCost={false} />
-                <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-3">
-                  <Input name="qty" inputMode="numeric" placeholder="Приход, шт" />
-                  <Input name="cost" inputMode="decimal" placeholder="Закупка за шт, ₽" />
-                </div>
-                <Submit>Добавить товар</Submit>
+                <ProductFields groups={groups} suppliers={suppliers} defaultGroupId={sp.g !== "none" ? sp.g : undefined} showCost={false} service={works} />
+                {!works && (
+                  <div className="grid grid-cols-2 gap-2 border-t border-slate-100 pt-3">
+                    <Input name="qty" inputMode="numeric" placeholder="Приход, шт" />
+                    <Input name="cost" inputMode="decimal" placeholder="Закупка за шт, ₽" />
+                  </div>
+                )}
+                <Submit>{works ? "Добавить работу" : "Добавить товар"}</Submit>
               </Form>
             </Card>
           )}
@@ -156,16 +168,23 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
               {sp.g && <input type="hidden" name="g" value={sp.g} />}
               {sp.w && <input type="hidden" name="w" value={sp.w} />}
               <input type="hidden" name="f" value={filter} />
+              {works && <input type="hidden" name="t" value="works" />}
               <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" />
               <Input name="q" defaultValue={q} placeholder="Название, код, штрихкод" className="w-72 pl-9" />
             </form>
-            {[
-              ["pos", "В наличии"],
-              ["low", "Заканчиваются"],
-              ["zero", "Нет в наличии"],
-              ["all", "Все"],
-              ["archive", "Архив"],
-            ].map(([k, l]) => (
+            {(works
+              ? [
+                  ["all", "Все"],
+                  ["archive", "Архив"],
+                ]
+              : [
+                  ["pos", "В наличии"],
+                  ["low", "Заканчиваются"],
+                  ["zero", "Нет в наличии"],
+                  ["all", "Все"],
+                  ["archive", "Архив"],
+                ]
+            ).map(([k, l]) => (
               <Link key={k} href={qs({ f: k })} className={`rounded-lg px-3 py-1.5 text-sm ${filter === k ? "bg-blue-600 on-accent" : "text-slate-600 hover:bg-slate-100"}`}>
                 {l}
               </Link>
@@ -182,9 +201,9 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
                   <th className="px-3 py-2.5 font-medium">Наименование · {rows.length}</th>
                   <th className="px-3 py-2.5 font-medium">Группа</th>
                   <th className="px-3 py-2.5 font-medium">Поставщик</th>
-                  <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">Кол-во</th>
-                  {(locations.length > 1 || warehouses.length > 1) && <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">{wh ? "Др. склады" : "Др. точки"}</th>}
-                  <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">Мин.</th>
+                  {!works && <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">Кол-во</th>}
+                  {!works && (locations.length > 1 || warehouses.length > 1) && <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">{wh ? "Др. склады" : "Др. точки"}</th>}
+                  {!works && <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">Мин.</th>}
                   {showCost && <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">Закупка</th>}
                   <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">Розничная</th>
                   <th className="px-3 py-2.5 text-right font-medium whitespace-nowrap">Ремонтная</th>
@@ -203,9 +222,9 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
                     </td>
                     <td className="px-3 py-2 text-slate-600">{p.group?.name}</td>
                     <td className="px-3 py-2 text-blue-600">{p.supplier?.name}</td>
-                    <td className={`px-3 py-2 text-right font-semibold ${low ? "text-red-600" : "text-slate-900"}`}>{here}</td>
-                    {(locations.length > 1 || warehouses.length > 1) && <td className="px-3 py-2 text-right whitespace-nowrap text-slate-500">{other}</td>}
-                    <td className="px-3 py-2 text-right whitespace-nowrap text-slate-500">{p.minQty || ""}</td>
+                    {!works && <td className={`px-3 py-2 text-right font-semibold ${low ? "text-red-600" : "text-slate-900"}`}>{here}</td>}
+                    {!works && (locations.length > 1 || warehouses.length > 1) && <td className="px-3 py-2 text-right whitespace-nowrap text-slate-500">{other}</td>}
+                    {!works && <td className="px-3 py-2 text-right whitespace-nowrap text-slate-500">{p.minQty || ""}</td>}
                     {showCost && <td className="px-3 py-2 text-right whitespace-nowrap text-slate-500">{p.cost ? rub(p.cost) : ""}</td>}
                     <td className="px-3 py-2 text-right whitespace-nowrap">{rub(p.price)}</td>
                     <td className="px-3 py-2 text-right whitespace-nowrap text-slate-600">{p.repairPrice != null ? rub(p.repairPrice) : ""}</td>
@@ -214,10 +233,10 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
                 ))}
               </tbody>
             </table>
-            {!rows.length && <p className="p-10 text-center text-sm text-slate-400">Товаров нет</p>}
+            {!rows.length && <p className="p-10 text-center text-sm text-slate-400">{works ? "Работ и услуг пока нет. Добавьте, например, «Консультация» или «Диагностика»" : "Товаров нет"}</p>}
           </div>
           </Form>
-          {showCost && <p className="text-sm text-slate-500">Товара {wh ? `на складе «${wh.name}»` : "на точке"} по закупочной цене: {rub(value)}</p>}
+          {showCost && !works && <p className="text-sm text-slate-500">Товара {wh ? `на складе «${wh.name}»` : "на точке"} по закупочной цене: {rub(value)}</p>}
         </div>
       </div>
     </>

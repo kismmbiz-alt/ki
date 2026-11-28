@@ -37,11 +37,11 @@ export function SideNav({ items }: { items: SideItem[] }) {
           <div key={it.href} className="shrink-0">
             <div
               className={`flex items-center rounded-lg text-sm transition ${
-                active ? "bg-[#4f6bff]/20 font-medium text-[#fff] ring-1 ring-[#4f6bff]/50" : "text-[#aab1bf] hover:bg-[#ffffff0d] hover:text-[#fff]"
+                active ? "bg-[#4f6bff] font-semibold text-[#fff] shadow-md shadow-[#4f6bff]/30" : "text-[#aab1bf] hover:bg-[#ffffff0d] hover:text-[#fff]"
               }`}
             >
               <Link href={it.href} onClick={() => setOpen(it.href)} className="flex flex-1 items-center gap-3 px-3 py-2 whitespace-nowrap">
-                <span className={active ? "text-[#8ea0ff]" : "text-[#7d8494]"}>{it.icon}</span>
+                <span className={active ? "text-[#fff]" : "text-[#7d8494]"}>{it.icon}</span>
                 {it.label}
               </Link>
               {!!it.children?.length && (
@@ -64,7 +64,7 @@ export function SideNav({ items }: { items: SideItem[] }) {
                       key={c.href}
                       href={c.href}
                       className={`flex items-center gap-2 rounded-md py-1.5 pr-2 pl-10 text-[13px] whitespace-nowrap ${
-                        on ? "bg-[#ffffff12] text-[#fff]" : "text-[#9aa1ae] hover:bg-[#ffffff0a] hover:text-[#fff]"
+                        on ? "bg-[#4f6bff]/20 font-medium text-[#fff]" : "text-[#9aa1ae] hover:bg-[#ffffff0a] hover:text-[#fff]"
                       }`}
                     >
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${on ? "bg-[#8ea0ff]" : "bg-[#4a4f5a]"}`} />

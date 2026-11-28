@@ -26,6 +26,16 @@ function PermBoxes({ on }: { on: readonly string[] }) {
   );
 }
 
+function DiscountField({ value }: { value: number | null }) {
+  return (
+    <label className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+      <span>Максимальная скидка в продаже, %</span>
+      <Input name="maxDiscountPct" defaultValue={value == null ? "" : String(value)} inputMode="numeric" placeholder="без ограничения" className="w-36" />
+      <span className="text-xs text-slate-500">на позицию и на чек вместе</span>
+    </label>
+  );
+}
+
 const roleOptions = (Object.keys(BASE_ROLE_LABEL) as (keyof typeof BASE_ROLE_LABEL)[]).map((r) => (
   <option key={r} value={r}>
     {BASE_ROLE_LABEL[r]}
@@ -67,6 +77,7 @@ export default async function PositionsPage() {
                   <Input name="sort" defaultValue={String(p.sort)} inputMode="numeric" />
                 </Field>
               </div>
+              <DiscountField value={p.maxDiscountPct} />
               <PermBoxes on={p.perms} />
               <div className="flex gap-2 border-t border-slate-100 pt-3">
                 <Submit variant="secondary">Сохранить</Submit>
@@ -94,6 +105,7 @@ export default async function PositionsPage() {
                 <Input name="sort" defaultValue={String(positions.length)} inputMode="numeric" />
               </Field>
             </div>
+            <DiscountField value={null} />
             <PermBoxes on={newDefaults} />
             <Submit>Добавить должность</Submit>
           </Form>

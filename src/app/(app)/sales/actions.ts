@@ -13,7 +13,7 @@ import { refreshBonus } from "@/lib/domain/bonus";
 export const createSaleAction = safe(async (fd) => {
   const ctx = await requirePermission("sales");
   const loc = requireLocation(ctx);
-  const raw = JSON.parse(str(fd, "items") || "[]") as { productId: string; qty: number; price: string }[];
+  const raw = JSON.parse(str(fd, "items") || "[]") as { productId: string; qty: number; price: string; discount?: string }[];
   const sale = await createSale(
     { db: ctx.db, companyId: ctx.company.id },
     {
@@ -25,8 +25,9 @@ export const createSaleAction = safe(async (fd) => {
       discount: toKop(fd.get("discount")),
       client: { phone: str(fd, "clientPhone"), name: str(fd, "clientName") },
       allowBelowMin: can(ctx.user, "belowMin"),
+      maxDiscountPct: ctx.user.role === "OWNER" ? null : (ctx.user.position?.maxDiscountPct ?? null),
       bonusPay: str(fd, "bonusPay") ? toKop(fd.get("bonusPay")) : 0,
-      items: raw.map((r) => ({ productId: String(r.productId), qty: Math.floor(Number(r.qty)), price: toKop(r.price) })),
+      items: raw.map((r) => ({ productId: String(r.productId), qty: Math.floor(Number(r.qty)), price: toKop(r.price), discount: r.discount ? toKop(r.discount) : 0 })),
     },
   );
   redirect(`/sales/${sale.id}?done=1`);
@@ -71,3 +72,20 @@ export async function bonusLookupAction(phone: string) {
   const visits = (await ctx.db.sale.count({ where: { clientId: c.id, isReturn: false } })) + (await ctx.db.order.count({ where: { clientId: c.id } }));
   return { name: c.name, available: st.available, visits };
 }
+
+/** Плитки продажи: настраивают владелец и администратор. */
+export const saveSaleTilesAction = safe(async (fd) => {
+  const ctx = await requirePermission("settings");
+  for (const side of ["PRIORITY", "FREQUENT"]) {
+    for (let slot = 0; slot < 4; slot++) {
+      const productId = String(fd.get(`${side}-${slot}`) ?? "");
+      await ctx.db.saleTile.deleteMany({ where: { side, slot } });
+      if (productId) {
+        await ctx.db.product.findUniqueOrThrow({ where: { id: productId } });
+        await ctx.db.saleTile.create({ data: { companyId: ctx.company.id, side, slot, productId } });
+      }
+    }
+  }
+  revalidatePath("/sales", "layout");
+  return "Плитки сохранены";
+});

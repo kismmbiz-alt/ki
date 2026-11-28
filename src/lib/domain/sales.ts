@@ -26,8 +26,10 @@ export async function createSale(
     method: PayMethod;
     discount?: number; // скидка на чек, коп.
     allowBelowMin?: boolean; // владельцу можно продать ниже минимальной цены
+    maxDiscountPct?: number | null; // предел скидки для должности продавца, %
     bonusPay?: number; // оплата баллами, коп.
-    items: { productId: string; qty: number; price?: number }[];
+    // price — цена за единицу до скидки, discount — скидка на всю позицию, коп.
+    items: { productId: string; qty: number; price?: number; discount?: number }[];
   },
 ) {
   const items = s.items.filter((i) => i.qty > 0);
@@ -45,17 +47,24 @@ export async function createSale(
     const wh = await tx.warehouse.findUniqueOrThrow({ where: { id: warehouseId } });
     const cashboxId = await resolveCashbox(tx, s.locationId, s.cashboxId || wh.cashboxId);
     const rows = [];
+    let gross = 0;
     for (const i of items) {
       const p = await tx.product.findUniqueOrThrow({ where: { id: i.productId } });
-      const price = i.price ?? p.price;
-      if (price < 0) throw new Error("Цена не может быть отрицательной");
+      const base = i.price ?? p.price;
+      if (base < 0) throw new Error("Цена не может быть отрицательной");
+      // скидка на позицию делится на единицы, чтобы возвраты и отчёты считали честно
+      const unitDisc = Math.min(base, Math.max(0, Math.round((i.discount ?? 0) / i.qty)));
+      const price = base - unitDisc;
       if (!s.allowBelowMin && p.minPrice && price < p.minPrice)
-        throw new Error(`«${p.name}»: цена ниже минимальной (${(p.minPrice / 100).toLocaleString("ru-RU")} ₽)`);
-      rows.push({ productId: p.id, name: p.name, qty: i.qty, price, cost: p.cost });
+        throw new Error(`«${p.name}»: цена со скидкой ниже минимальной (${(p.minPrice / 100).toLocaleString("ru-RU")} ₽)`);
+      gross += i.qty * base;
+      rows.push({ productId: p.id, name: p.name, qty: i.qty, price, discount: unitDisc, cost: p.cost });
     }
     const sum = rows.reduce((acc, r) => acc + r.qty * r.price, 0);
     const discount = Math.min(Math.max(0, s.discount ?? 0), sum);
     const total = sum - discount;
+    if (s.maxDiscountPct != null && gross > 0 && gross - total > Math.floor((gross * s.maxDiscountPct) / 100))
+      throw new Error(`Скидка ${(((gross - total) / gross) * 100).toLocaleString("ru-RU", { maximumFractionDigits: 1 })}% больше разрешённой для вашей должности (${s.maxDiscountPct}%)`);
     const rules = await tx.company.findUniqueOrThrow({ where: { id: companyId } });
     const bonusPay = Math.max(0, Math.round(s.bonusPay ?? 0));
     if (bonusPay && !clientId) throw new Error("Чтобы оплатить баллами, укажите телефон клиента");
@@ -87,7 +96,7 @@ export async function createSale(
       locationId: s.locationId,
       cashboxId,
       kind: "sale",
-      text: `Продажа №${number}, склад «${wh.name}», ${PAY_LABEL[s.method].toLowerCase()}${discount ? `, скидка ${(discount / 100).toLocaleString("ru-RU")} ₽` : ""}`,
+      text: `Продажа №${number}, склад «${wh.name}», ${PAY_LABEL[s.method].toLowerCase()}${gross - total ? `, скидка ${((gross - total) / 100).toLocaleString("ru-RU")} ₽` : ""}`,
       amount: total,
       link: `/sales/${sale.id}`,
     });

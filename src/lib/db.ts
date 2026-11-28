@@ -11,6 +11,7 @@ if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 export const TENANT_MODELS = new Set<string>([
   "PriceType",
   "BonusTx",
+  "SaleTile",
   "CashTxLog",
   "ProductPrice",
   "PrintTemplate",

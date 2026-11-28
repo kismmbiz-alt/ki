@@ -39,7 +39,8 @@ async function productFields(fd: FormData, db: Awaited<ReturnType<typeof require
     warrantyDays: str(fd, "warrantyDays") ? int(fd, "warrantyDays") : null,
     country: opt(fd, "country"),
     description: opt(fd, "description"),
-    isSerial: str(fd, "isSerial") === "1",
+    isSerial: str(fd, "isSerial") === "1" && str(fd, "isService") !== "1",
+    isService: str(fd, "isService") === "1",
     groupId,
     supplierId,
   };
@@ -55,22 +56,27 @@ export const createProductAction = safe(async (fd) => {
     data: { companyId: ctx.company.id, name, ...fields, barcode: fields.barcode ?? (await nextBarcode(ctx.company.id)) },
   });
   await saveProductPrices(ctx.db, ctx.company.id, p.id, customPrices(fd));
-  const qty = int(fd, "qty");
+  const qty = fields.isService ? 0 : int(fd, "qty");
   if (qty > 0) {
     await receiveStock({ db: ctx.db, companyId: ctx.company.id }, { productId: p.id, locationId: loc.id, warehouseId: opt(fd, "warehouseId"), qty, cost: toKop(fd.get("cost")), userId: ctx.user.id });
   }
   revalidatePath("/stock");
-  return `Товар «${name}» добавлен`;
+  return `${fields.isService ? "Работа" : "Товар"} «${name}» добавлен${fields.isService ? "а" : ""}`;
 });
 
 export const updateProductAction = safe(async (fd) => {
   const ctx = await requirePermission("stockDocs");
   const id = str(fd, "id");
+  const fields = await productFields(fd, ctx.db);
+  if (fields.isService) {
+    const left = await ctx.db.stock.aggregate({ where: { productId: id }, _sum: { qty: true } });
+    if (left._sum.qty) throw new Error(`На складе ещё ${left._sum.qty} шт. Чтобы сделать это работой, сначала спишите остаток`);
+  }
   await ctx.db.product.update({
     where: { id },
     data: {
       name: str(fd, "name") || undefined,
-      ...(await productFields(fd, ctx.db)),
+      ...fields,
       isActive: str(fd, "isActive") === "1",
     },
   });

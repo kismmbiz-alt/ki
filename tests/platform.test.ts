@@ -142,3 +142,18 @@ describe("сводка", () => {
     expect(h.avg).toBe(105);
   });
 });
+
+describe("заявки партнёров", () => {
+  it("доступ только после одобрения или оплаты; вход поддержки в неодобренную нельзя", async () => {
+    const { hasAccess, setApproval } = await import("@/lib/platform/approval");
+    expect(["PENDING", "TALKING", "AWAITING_PAYMENT", "REJECTED"].map((s) => hasAccess(s as never))).toEqual([false, false, false, false]);
+    expect(hasAccess("APPROVED")).toBe(true);
+    expect(hasAccess("PAID")).toBe(true);
+    const { a, b } = await two();
+    expect(b.company.approval).toBe("APPROVED"); // старые и созданные напрямую мастерские не блокируются
+    const c = await setApproval(b.company.id, "TALKING", "перезвонить в понедельник");
+    expect(c.approvalNote).toBe("перезвонить в понедельник");
+    expect((await setApproval(b.company.id, "AWAITING_PAYMENT")).approvalNote).toBe("перезвонить в понедельник");
+    void a;
+  });
+});

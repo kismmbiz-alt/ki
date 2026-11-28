@@ -15,6 +15,7 @@ import {
   Wallet,
   Wrench,
 } from "lucide-react";
+import { prisma } from "@/lib/db";
 import { can, requireUser, ROLE_LABEL } from "@/lib/auth";
 import { logout } from "../(auth)/actions";
 import { switchLocation, toggleTheme } from "./actions";
@@ -23,6 +24,7 @@ import { SideNav, type SubItem } from "@/components/side-nav";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, company, locations, location, platformAdmin, support } = await requireUser();
+  const pendingRequests = platformAdmin && !support ? await prisma.company.count({ where: { approval: "PENDING" } }) : 0;
   const dark = (await cookies()).get("theme")?.value !== "light";
   const role = user.role;
   const I = { size: 18, strokeWidth: 1.8 };
@@ -129,11 +131,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     },
     {
       href: "/platform",
-      label: "Платформа",
+      label: pendingRequests ? `Платформа (${pendingRequests})` : "Платформа",
       icon: <ShieldCheck {...I} />,
       show: platformAdmin && !support,
       children: [
         { href: "/platform", label: "Стабильность", exact: true },
+        { href: "/platform/requests", label: pendingRequests ? `Заявки (${pendingRequests})` : "Заявки" },
         { href: "/platform/companies", label: "Компании" },
         { href: "/platform/invites", label: "Приглашения" },
         { href: "/platform/support", label: "Журнал поддержки" },
@@ -145,7 +148,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className={`min-h-screen md:flex ${dark ? "theme-dark" : ""}`}>
-      <aside className="no-print bg-[#15171c] text-[#e4e7ec] md:sticky md:top-0 md:flex md:h-screen md:w-60 md:shrink-0 md:flex-col">
+      <aside className="no-print border-r border-[#262a31] bg-[#1a1d23] text-[#e4e7ec] md:sticky md:top-0 md:flex md:h-screen md:w-60 md:shrink-0 md:flex-col">
         <div className="flex items-center justify-between gap-2 px-4 py-4">
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#4f6bff] to-[#7c4dff] text-sm font-bold text-[#fff]">
@@ -205,7 +208,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
         </div>
       </aside>
-      <main className="min-w-0 flex-1 bg-slate-50 p-4 md:p-6">
+      <main className="min-w-0 flex-1 bg-[var(--page)] p-4 md:p-6">
         {support && (
           <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
             <span>

@@ -28,7 +28,7 @@ export default async function NewDocPage({ searchParams }: { searchParams: Promi
   if (!warehouses.length) warehouses.push(await ctx.db.warehouse.findUniqueOrThrow({ where: { id: await defaultWarehouseId(ctx.db, loc.id) } }));
   const wh = warehouses.find((x) => x.id === w) ?? warehouses[0];
   const [products, suppliers, targets] = await Promise.all([
-    ctx.db.product.findMany({ where: { isActive: true }, include: { stocks: { where: { warehouseId: wh.id } } }, orderBy: { name: "asc" } }),
+    ctx.db.product.findMany({ where: { isActive: true, isService: false }, include: { stocks: { where: { warehouseId: wh.id } } }, orderBy: { name: "asc" } }),
     ctx.db.supplier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     ctx.db.warehouse.findMany({ where: { isActive: true, id: { not: wh.id }, location: { isActive: true } }, include: { location: true }, orderBy: [{ location: { createdAt: "asc" } }, { sort: "asc" }] }),
   ]);
@@ -38,7 +38,7 @@ export default async function NewDocPage({ searchParams }: { searchParams: Promi
 
   if (type === "RECEIPT") {
     const [all, groups, users, places] = await Promise.all([
-      ctx.db.product.findMany({ where: { isActive: true }, include: { stocks: { where: { locationId: loc.id } } }, orderBy: { name: "asc" } }),
+      ctx.db.product.findMany({ where: { isActive: true, isService: false }, include: { stocks: { where: { locationId: loc.id } } }, orderBy: { name: "asc" } }),
       ctx.db.productGroup.findMany({ select: { id: true, name: true, parentId: true } }),
       ctx.db.user.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
       placesFor({ db: ctx.db, companyId: ctx.company.id }, loc.id, ctx.user),
